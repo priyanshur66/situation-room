@@ -26,6 +26,7 @@ export const contracts = {
   router: "0x2626664c2603336E57B271c5C0b26F421741e481",
 } as const;
 export const routerAbi = parseAbi([
+  "function exactInput((bytes path,address recipient,uint256 amountIn,uint256 amountOutMinimum) params) payable returns (uint256 amountOut)",
   "function exactInputSingle((address tokenIn,address tokenOut,uint24 fee,address recipient,uint256 amountIn,uint256 amountOutMinimum,uint160 sqrtPriceLimitX96) params) payable returns (uint256 amountOut)",
   "function multicall(uint256 deadline,bytes[] data) payable returns (bytes[] results)",
   "function refundETH() payable",
@@ -104,7 +105,7 @@ export async function quoteExit(
   snapshot: Snapshot,
   client = rpc(),
   lifetimeMs = 60000,
-): Promise<Quote> {
+): Promise<Quote<"ETH" | "WETH">> {
   const address = getAddress(wallet),
     amountIn = parseAmount(amount, 18);
   if (Date.now() - snapshot.indexedAt * 1000 > 300000)

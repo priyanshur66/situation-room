@@ -10,6 +10,7 @@ type AbiSchema = Extract<
 >["abi"];
 import { contracts, routerAbi } from "./chain";
 import type { PaymentPreview } from "./policy";
+import { trackedTokens } from "./portfolio";
 
 // Compile only reviewed, narrowly scoped calls. Unknown selectors fail closed.
 export function paymentRules(plan: PaymentPreview): Rule[] {
@@ -62,7 +63,8 @@ export function paymentRules(plan: PaymentPreview): Rule[] {
       equal(erc20Abi, "transfer.amount", decoded.args[1]);
     } else if (
       tx.kind === "approval" &&
-      tx.to.toLowerCase() === contracts.weth.toLowerCase()
+      (tx.to.toLowerCase() === contracts.weth.toLowerCase() ||
+        Object.hasOwn(trackedTokens, tx.to.toLowerCase()))
     ) {
       const decoded = decodeFunctionData({
         abi: erc20Abi,
@@ -83,12 +85,15 @@ export function paymentRules(plan: PaymentPreview): Rule[] {
         abi: routerAbi,
         data: tx.data as Hex,
       });
-      if (decoded.functionName !== "exactInputSingle")
+      if (
+        decoded.functionName !== "exactInputSingle" &&
+        decoded.functionName !== "exactInput"
+      )
         throw new Error(
           "Delegation supports only an individually constrained swap, not arbitrary multicalls.",
         );
       for (const [field, value] of Object.entries(decoded.args[0]))
-        equal(routerAbi, `exactInputSingle.params.${field}`, value);
+        equal(routerAbi, `${decoded.functionName}.params.${field}`, value);
     } else throw new Error("Unsupported delegated transaction.");
     return {
       name: `Payment step ${i + 1}`,

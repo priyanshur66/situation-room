@@ -19,6 +19,7 @@ import {
   type PaymentTransaction,
 } from "../src/lib/policy";
 import { previewPayment } from "../src/lib/payments";
+import { verifyLiquidationReceipt } from "../src/lib/payment-receipt";
 
 export const interpret = action({
   args: { wallet: v.string(), instruction: v.string() },
@@ -274,6 +275,15 @@ export async function confirmPayment(
   )
     throw new ConvexError("Transaction does not match this payment step.");
   const reverted = receipt.status !== "success";
+  if (!reverted && expected.kind === "swap") {
+    try {
+      verifyLiquidationReceipt(row.wallet, expected, receipt.logs);
+    } catch {
+      throw new ConvexError(
+        "Liquidation receipt does not prove the approved minimum USDC output. Payment has not advanced.",
+      );
+    }
+  }
   if (!reverted && expected.kind === "payment") {
     const transfers = parseEventLogs({
       abi: erc20Abi,

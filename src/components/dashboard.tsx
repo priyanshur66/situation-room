@@ -38,7 +38,12 @@ import {
   type Snapshot,
   type Quote,
   type FundingPlan,
+  type ExecutionAsset,
 } from "../lib/model";
+import {
+  availableExecutionAssets,
+  executionBalance,
+} from "../lib/execution-assets";
 import { errorMessage } from "../lib/errors";
 import { StreamPanel } from "./stream-panel";
 import { PortfolioDiscoveryPanel } from "./portfolio-discovery";
@@ -53,7 +58,7 @@ export type DashboardActions = {
   connect: () => void;
   disconnect: () => void;
   refresh: () => Promise<Snapshot>;
-  quote: (asset: "ETH" | "WETH", amount: string) => Promise<Quote>;
+  quote: (asset: ExecutionAsset, amount: string) => Promise<Quote>;
   execute: (q: Quote) => Promise<string>;
   ask: (question: string) => Promise<string>;
   funding: (target: string) => Promise<FundingPlan>;
@@ -125,7 +130,7 @@ function WalletDashboard({
   const [localSnapshot, setSnapshot] = useState<Snapshot | null>(null),
     [section, setSection] = useState("Overview"),
     [days, setDays] = useState(14);
-  const [asset, setAsset] = useState<"ETH" | "WETH">("ETH"),
+  const [asset, setAsset] = useState<ExecutionAsset>("ETH"),
     [amount, setAmount] = useState(""),
     [quote, setQuote] = useState<Quote | null>(null);
   const [busy, setBusy] = useState(canAnalyze ? "refresh" : ""),
@@ -346,7 +351,7 @@ function WalletDashboard({
               >
                 Copy address
               </button>
-              <span>Base ETH / WETH / USDC only</span>
+              <span>Base · verified token balances</span>
             </div>
           )}
           {swapRecovery}
@@ -431,7 +436,9 @@ function WalletDashboard({
               >
                 {actions?.connected ? "Retry analysis" : "Connect wallet"}
               </button>
-              <p className="disclaimer">ETH, WETH and USDC on Base only.</p>
+              <p className="disclaimer">
+                Base balances and indexed market evidence.
+              </p>
             </section>
           )}
           {view && data && (
@@ -694,13 +701,14 @@ function WalletDashboard({
                             disabled={!!busy}
                             value={asset}
                             onChange={(event) => {
-                              setAsset(event.target.value as "ETH" | "WETH");
+                              setAsset(event.target.value as ExecutionAsset);
                               setQuote(null);
                               setFundingPlan(null);
                             }}
                           >
-                            <option>ETH</option>
-                            <option>WETH</option>
+                            {availableExecutionAssets(view).map((symbol) => (
+                              <option key={symbol}>{symbol}</option>
+                            ))}
                           </select>
                         </div>
                         <button
@@ -721,10 +729,7 @@ function WalletDashboard({
                       </div>
                       <div className="balance-label">
                         Available{" "}
-                        {view.holdings.find(
-                          (holding) => holding.symbol === asset,
-                        )?.units ?? "Unavailable"}{" "}
-                        {asset}
+                        {executionBalance(view, asset) ?? "Unavailable"} {asset}
                       </div>
                     </form>
                     <div className="risk-list">
@@ -833,19 +838,18 @@ function WalletDashboard({
                         disabled={!!busy}
                         value={asset}
                         onChange={(e) => {
-                          setAsset(e.target.value as "ETH" | "WETH");
+                          setAsset(e.target.value as ExecutionAsset);
                           setQuote(null);
                           setFundingPlan(null);
                         }}
                       >
-                        <option>ETH</option>
-                        <option>WETH</option>
+                        {availableExecutionAssets(view).map((symbol) => (
+                          <option key={symbol}>{symbol}</option>
+                        ))}
                       </select>
                     </div>
                     <div className="balance-label">
-                      Available{" "}
-                      {view.holdings.find((h) => h.symbol === asset)?.units ??
-                        "Unavailable"}{" "}
+                      Available {executionBalance(view, asset) ?? "Unavailable"}{" "}
                       {asset}
                     </div>
                     <div className="route-line">↓</div>
@@ -888,9 +892,21 @@ function WalletDashboard({
                             <span>{quote.minimumOut} USDC</span>
                           </div>
                           <div>
-                            <span>Pool fee</span>
-                            <span>{(quote.fee / 10000).toFixed(2)}%</span>
+                            <span>Route pool fees</span>
+                            <span>
+                              {quote.route
+                                ? quote.route.fees
+                                    .map((f) => `${(f / 10000).toFixed(2)}%`)
+                                    .join(" + ")
+                                : `${(quote.fee / 10000).toFixed(2)}%`}
+                            </span>
                           </div>
+                          {quote.route && (
+                            <div>
+                              <span>Route</span>
+                              <span>{quote.route.assets.join(" → ")}</span>
+                            </div>
+                          )}
                           <div>
                             <span>Price impact</span>
                             <span>{quote.priceImpactPct.toFixed(2)}%</span>
@@ -1146,7 +1162,8 @@ function WalletDashboard({
             <dl>
               <dt>Coverage</dt>
               <dd>
-                Base ETH, WETH and native USDC only. No debt, lending or LP
+                Core metrics cover Base ETH, WETH and native USDC. Additional
+                verified tokens appear in wallet sectors. No debt, lending or LP
                 positions.
               </dd>
               <dt>Concentration flag</dt>
@@ -1168,9 +1185,10 @@ function WalletDashboard({
               </dd>
               <dt>Execution</dt>
               <dd>
-                Best output among supported direct Uniswap V3 pools successfully
-                quoted, not a whole-market best-price guarantee. Slippage capped
-                at 0.5%; explicit wallet approval required.
+                Best output among supported Uniswap V3 routes successfully
+                quoted, including verified token exits through WETH. Not a
+                whole-market best-price guarantee. Slippage capped at 0.5%;
+                explicit wallet approval required.
               </dd>
             </dl>
             <a

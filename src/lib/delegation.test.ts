@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { encodeFunctionData, erc20Abi } from "viem";
+import { encodeFunctionData, encodePacked, erc20Abi } from "viem";
 import { paymentRules } from "./delegation";
 import { contracts, routerAbi } from "./chain";
 import type { PaymentPreview } from "./policy";
 import { PrivyClient } from "@privy-io/node";
+import { tokenContract } from "./execution-assets";
 const recipient = "0x0000000000000000000000000000000000000001";
 function plan(): PaymentPreview {
   return {
@@ -32,7 +33,42 @@ function plan(): PaymentPreview {
     ],
   };
 }
+function tokenSwap(): PaymentPreview["transactions"][number] {
+  return {
+    ...plan().transactions[0],
+    to: contracts.router,
+    kind: "swap",
+    data: encodeFunctionData({
+      abi: routerAbi,
+      functionName: "exactInput",
+      args: [
+        {
+          path: encodePacked(
+            ["address", "uint24", "address", "uint24", "address"],
+            [
+              tokenContract("DEGEN")!,
+              3000,
+              contracts.weth,
+              500,
+              contracts.usdc,
+            ],
+          ),
+          recipient,
+          amountIn: 1000n,
+          amountOutMinimum: 900n,
+        },
+      ],
+    }),
+  };
+}
 describe("restricted payment policy compiler", () => {
+  it("binds multi-hop swaps to the exact path, input, minimum and recipient", () => {
+    const p = plan();
+    p.transactions = [tokenSwap()];
+    const fields = paymentRules(p)[0].conditions.map((c) => c.field);
+    for (const field of ["path", "recipient", "amountIn", "amountOutMinimum"])
+      expect(fields).toContain(`exactInput.params.${field}`);
+  });
   it("binds payment to Base, exact token, recipient, amount, native value and expiry", () => {
     const rules = paymentRules(plan());
     expect(rules).toHaveLength(1);
@@ -149,14 +185,13 @@ it.skipIf(process.env.RUN_POLICY_TESTS !== "1")(
       timeout: 15000,
       maxRetries: 0,
     });
-    const policy = await client
-      .policies()
-      .create({
-        name: "Payment rule validation",
-        version: "1.0",
-        chain_type: "ethereum",
-        rules: paymentRules(p),
-      });
+    p.transactions.push(tokenSwap());
+    const policy = await client.policies().create({
+      name: "Payment rule validation",
+      version: "1.0",
+      chain_type: "ethereum",
+      rules: paymentRules(p),
+    });
     try {
       expect(policy.id).toBeTruthy();
     } finally {

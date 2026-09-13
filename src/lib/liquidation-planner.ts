@@ -1,9 +1,11 @@
 import { formatUnits, parseUnits } from "viem";
-import { parseAmount, type Quote } from "./model";
+import { parseAmount, type Quote, type ExecutionAsset } from "./model";
 
-export type FundingCandidate = {
-  symbol: "ETH" | "WETH";
+export type FundingCandidate<A extends ExecutionAsset = ExecutionAsset> = {
+  symbol: A;
   spendable: bigint;
+  decimals?: number;
+  priceUsd?: number;
 };
 export type FundingChoice = {
   quotes: Quote[];
@@ -12,26 +14,56 @@ export type FundingChoice = {
   nativeRequired: bigint;
 };
 
-// Compare both supported asset orders, including one-asset and split funding.
+// Compare bounded supported asset orders, including one-asset and split funding.
 // This is bounded route comparison, not a claim of global optimality across DEXes.
-export async function chooseFunding(
-  candidates: FundingCandidate[],
+export async function chooseFunding<A extends ExecutionAsset>(
+  candidates: FundingCandidate<A>[],
   shortfall: bigint,
   price: number,
   nativeBalance: bigint,
   paymentReserve: bigint,
-  quote: (asset: "ETH" | "WETH", input: string) => Promise<Quote>,
+  quote: (asset: A, input: string) => Promise<Quote>,
 ): Promise<{ selected: FundingChoice; alternatives: FundingChoice[] }> {
   if (!Number.isFinite(price) || price <= 0)
     throw new Error("A current positive ETH price is required.");
+  const eligible = candidates.filter((c) => {
+    const tokenPrice =
+      c.priceUsd ?? (c.symbol === "ETH" || c.symbol === "WETH" ? price : NaN);
+    const decimals = c.decimals ?? 18;
+    return (
+      Number.isFinite(tokenPrice) &&
+      tokenPrice > 0 &&
+      Number.isInteger(decimals) &&
+      decimals >= 0 &&
+      decimals <= 36
+    );
+  });
+  // Each asset gets first priority; reverse rotations also compare split exits.
+  // Bounded to this allowlist, not global optimization across every DEX/token.
   const orders =
-    candidates.length > 1
-      ? [candidates, [...candidates].reverse()]
-      : [candidates];
+    eligible.length > 1
+      ? eligible
+          .flatMap((_, i) => {
+            const rotated = [...eligible.slice(i), ...eligible.slice(0, i)];
+            return [rotated, [...rotated].reverse()];
+          })
+          .filter(
+            (order, i, all) =>
+              all.findIndex(
+                (other) =>
+                  other.map((c) => c.symbol).join() ===
+                  order.map((c) => c.symbol).join(),
+              ) === i,
+          )
+      : [eligible];
   const cache = new Map<string, Promise<Quote>>();
-  const getQuote = (symbol: "ETH" | "WETH", input: bigint) => {
-    const key = `${symbol}:${input}`;
-    if (!cache.has(key)) cache.set(key, quote(symbol, formatUnits(input, 18)));
+  const getQuote = (candidate: FundingCandidate<A>, input: bigint) => {
+    const key = `${candidate.symbol}:${input}`;
+    if (!cache.has(key))
+      cache.set(
+        key,
+        quote(candidate.symbol, formatUnits(input, candidate.decimals ?? 18)),
+      );
     return cache.get(key)!;
   };
   const feasible: FundingChoice[] = [];
@@ -41,12 +73,18 @@ export async function chooseFunding(
     for (const asset of order) {
       if (!remaining) break;
       if (asset.spendable <= 0n) continue;
-      let input = BigInt(
-        Math.ceil((Number(formatUnits(remaining, 6)) / price) * 1.01 * 1e18),
+      const tokenPrice = asset.priceUsd ?? price;
+      const decimals = asset.decimals ?? 18;
+      const estimate = Math.ceil(
+        (Number(formatUnits(remaining, 6)) / tokenPrice) *
+          1.01 *
+          10 ** decimals,
       );
+      if (!Number.isFinite(estimate) || estimate <= 0) continue;
+      let input = BigInt(estimate);
       if (input > asset.spendable) input = asset.spendable;
       try {
-        let q = await getQuote(asset.symbol, input);
+        let q = await getQuote(asset, input);
         for (
           let attempt = 0;
           attempt < 2 &&
@@ -59,11 +97,14 @@ export async function chooseFunding(
             input / 1000n +
             1n;
           if (input > asset.spendable) input = asset.spendable;
-          q = await getQuote(asset.symbol, input);
+          q = await getQuote(asset, input);
         }
         if (
           q.asset !== asset.symbol ||
-          parseAmount(q.amountIn, 18) > asset.spendable ||
+          parseAmount(q.amountIn, decimals) !== input ||
+          parseAmount(q.amountIn, decimals) > asset.spendable ||
+          !Number.isFinite(q.gasUsd) ||
+          q.gasUsd < 0 ||
           q.expiresAt <= Date.now()
         )
           throw new Error(
@@ -89,7 +130,13 @@ export async function chooseFunding(
     if (nativeRequired > nativeBalance) continue;
     const estimatedCostUsd = quotes.reduce(
       (sum, q) =>
-        sum + Math.max(0, Number(q.amountIn) * price - Number(q.amountOut)),
+        sum +
+        Math.max(
+          0,
+          Number(q.amountIn) *
+            (eligible.find((c) => c.symbol === q.asset)?.priceUsd ?? price) -
+            Number(q.amountOut),
+        ),
       gasBudgetUsd,
     );
     if (!Number.isFinite(estimatedCostUsd) || estimatedCostUsd < 0) continue;

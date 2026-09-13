@@ -28,6 +28,49 @@ const candidates = [
   { symbol: "WETH" as const, spendable: parseUnits("1", 18) },
 ];
 describe("payment liquidation sequence selection", () => {
+  it("sizes additional tokens using their own price and onchain precision", async () => {
+    const quote = vi.fn(
+      async (asset: "DEGEN", input: string): Promise<Quote> => ({
+        ...(await quotes({ ETH: 0.01, WETH: 0.01 })("ETH", input)),
+        asset,
+        amountOut: (Number(input) * 2).toFixed(6),
+        minimumOut: (Number(input) * 2 * 0.995).toFixed(6),
+      }),
+    );
+    const result = await chooseFunding(
+      [
+        {
+          symbol: "DEGEN",
+          spendable: parseUnits("3", 6),
+          decimals: 6,
+          priceUsd: 2,
+        },
+      ],
+      5000000n,
+      2000,
+      parseUnits("1", 18),
+      100000n,
+      quote,
+    );
+    expect(result.selected.quotes[0].asset).toBe("DEGEN");
+    expect(Number(result.selected.quotes[0].amountIn)).toBeGreaterThan(2.5);
+    expect(Number(result.selected.quotes[0].amountIn)).toBeLessThan(3);
+    expect(result.selected.estimatedCostUsd).toBeCloseTo(0.01);
+  });
+  it("does not value an unpriced token at the ETH price", async () => {
+    const quote = vi.fn();
+    await expect(
+      chooseFunding(
+        [{ symbol: "DEGEN", spendable: parseUnits("100", 18) }],
+        5000000n,
+        2000,
+        parseUnits("1", 18),
+        100000n,
+        quote,
+      ),
+    ).rejects.toThrow("No eligible");
+    expect(quote).not.toHaveBeenCalled();
+  });
   it("selects ETH when WETH approval gas makes WETH more expensive", async () => {
     const result = await chooseFunding(
       candidates,

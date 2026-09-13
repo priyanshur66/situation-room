@@ -37,7 +37,11 @@ function HoldingsTable({ holdings }: { holdings: DiscoveredHolding[] }) {
                   <>
                     {money(Number(h.units) * h.market.priceUsd)}
                     <br />
-                    <small>Read-only · indexed price</small>
+                    <small>
+                      {h.recognized
+                        ? "Exit planner available · quote required"
+                        : "Read-only · indexed price"}
+                    </small>
                   </>
                 ) : (
                   "Unpriced · read-only"

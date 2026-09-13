@@ -8,7 +8,13 @@ import {
   zeroAddress,
   type Hex,
 } from "viem";
-import { contracts, quoteExit, readHoldings, rpc, routerAbi } from "./chain";
+import { contracts, readHoldings, rpc, routerAbi } from "./chain";
+import { quoteAssetExit } from "./token-exit";
+import {
+  executionAssets,
+  executionHolding,
+  tokenContract,
+} from "./execution-assets";
 import { parseAmount, type Snapshot } from "./model";
 import { chooseFunding, type FundingCandidate } from "./liquidation-planner";
 import {
@@ -29,9 +35,10 @@ export async function previewPayment(
   if (
     recipient === zeroAddress ||
     recipient.toLowerCase() === snapshot.wallet.toLowerCase() ||
-    Object.values(contracts).some(
-      (a) => a.toLowerCase() === recipient.toLowerCase(),
-    )
+    [
+      ...Object.values(contracts),
+      ...executionAssets.flatMap((a) => tokenContract(a) ?? []),
+    ].some((a) => a.toLowerCase() === recipient.toLowerCase())
   )
     throw new Error(
       "Choose a recipient wallet other than yourself or a token/router contract.",
@@ -94,6 +101,49 @@ export async function previewPayment(
     client.getBalance({ address: getAddress(snapshot.wallet) }),
     client.estimateFeesPerGas(),
   ]);
+  if (shortfall > 0n)
+    for (const asset of executionAssets) {
+      const token = tokenContract(asset),
+        h = executionHolding(snapshot, asset);
+      if (!token || !h || Number(h.units) <= 0) continue;
+      const blocked = liquidationBlock(policy, asset, null, token);
+      if (blocked) {
+        result.excluded.push(blocked);
+        continue;
+      }
+      if (!h.market || h.decimals === null) {
+        result.excluded.push(`${asset}: current market evidence unavailable.`);
+        continue;
+      }
+      try {
+        const [spendable, decimals] = await Promise.all([
+          client.readContract({
+            address: token,
+            abi: erc20Abi,
+            functionName: "balanceOf",
+            args: [getAddress(snapshot.wallet)],
+          }),
+          client.readContract({
+            address: token,
+            abi: erc20Abi,
+            functionName: "decimals",
+          }),
+        ]);
+        if (decimals !== h.decimals || decimals > 36)
+          throw new Error("Invalid token decimals.");
+        if (spendable > 0n)
+          candidates.push({
+            symbol: asset,
+            spendable,
+            decimals,
+            priceUsd: h.market.priceUsd,
+          });
+      } catch {
+        result.excluded.push(
+          `${asset}: live token balance or decimals unavailable.`,
+        );
+      }
+    }
   const reserve =
     100000n * (fees.maxFeePerGas ?? 1000000000n) * 2n + 10000000000000n;
   let funding: Awaited<ReturnType<typeof chooseFunding>>;
@@ -105,7 +155,7 @@ export async function previewPayment(
       native,
       reserve,
       (asset, input) =>
-        quoteExit(snapshot.wallet, asset, input, snapshot, client, 300000),
+        quoteAssetExit(snapshot.wallet, asset, input, snapshot, client, 300000),
     );
   } catch (error) {
     throw new Error(
@@ -163,7 +213,10 @@ export async function previewPayment(
         abi: routerAbi,
         data: call.args[1][0],
       });
-      if (inner.functionName !== "exactInputSingle")
+      if (
+        inner.functionName !== "exactInputSingle" &&
+        inner.functionName !== "exactInput"
+      )
         throw new Error("Unsupported delegated swap.");
       tx.data = call.args[1][0];
     }

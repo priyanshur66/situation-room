@@ -1,6 +1,8 @@
 import type { StreamEvidence } from "./stream-evidence";
 import type { PortfolioDiscovery } from "./portfolio";
 export type Asset = "ETH" | "WETH" | "USDC";
+export type ExecutionAsset =
+  "ETH" | "WETH" | "DEGEN" | "AERO" | "AAPLc" | "NVDAc";
 export type Day = {
   date: number;
   price: number;
@@ -27,9 +29,9 @@ export type Snapshot = {
   stream?: StreamEvidence;
   discovery?: PortfolioDiscovery;
 };
-export type Quote = {
+export type Quote<A extends ExecutionAsset = ExecutionAsset> = {
   source: "live";
-  asset: "ETH" | "WETH";
+  asset: A;
   amountIn: string;
   amountOut: string;
   minimumOut: string;
@@ -37,6 +39,7 @@ export type Quote = {
   gasUnits: string;
   fee: number;
   pool: string;
+  route?: { assets: string[]; fees: number[] };
   block: number;
   expiresAt: number;
   priceImpactPct: number;
@@ -132,8 +135,12 @@ export const money = (v: number, digits = 2) =>
   }).format(v);
 export const shortAddress = (s: string) => `${s.slice(0, 6)}…${s.slice(-4)}`;
 export function parseAmount(value: string, decimals: number): bigint {
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36)
+    throw new Error("Unsupported token precision.");
   if (
-    !new RegExp(`^(?:0|[1-9]\\d{0,12})(?:\\.\\d{1,${decimals}})?$`).test(value)
+    !new RegExp(
+      `^(?:0|[1-9]\\d{0,12})${decimals ? `(?:\\.\\d{1,${decimals}})?` : ""}$`,
+    ).test(value)
   )
     throw new Error(
       `Enter a positive amount with up to ${decimals} decimal places.`,

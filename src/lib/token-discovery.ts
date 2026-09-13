@@ -191,9 +191,9 @@ export async function discoverTokens(
   );
   result.note =
     result.status === "complete"
-      ? "Indexed pages exhausted; balances checked on Base. Indexing may lag. Additional holdings are excluded from the ETH/WETH/USDC total and spending."
+      ? "Indexed pages exhausted; balances checked on Base. Indexing may lag. Additional holdings are excluded from the core total. Recognized token exits require a verified live quote."
       : result.status === "partial"
-        ? "Partial discovery: pagination, rejected rows or balance checks are incomplete. Missing assets are unknown, not zero. Additional holdings are excluded from the ETH/WETH/USDC total and spending."
-        : "Token discovery unavailable. Tracked contracts checked directly; other assets may be missing. Additional holdings are excluded from the ETH/WETH/USDC total and spending.";
+        ? "Partial discovery: pagination, rejected rows or balance checks are incomplete. Missing assets are unknown, not zero. Additional holdings are excluded from the core total. Recognized token exits require a verified live quote."
+        : "Token discovery unavailable. Tracked contracts checked directly; other assets may be missing. Additional holdings are excluded from the ETH/WETH/USDC total. Recognized token exits require a verified live quote.";
   return result;
 }
