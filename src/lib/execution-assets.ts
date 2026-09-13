@@ -23,13 +23,6 @@ export function executionHolding(snapshot: Snapshot, asset: ExecutionAsset) {
 export function executionBalance(snapshot: Snapshot, asset: ExecutionAsset) {
   return asset === "ETH" || asset === "WETH"
     ? snapshot.holdings.find((h) => h.symbol === asset)?.units
-    : executionHolding(snapshot, asset)?.units;
-}
-export function availableExecutionAssets(snapshot: Snapshot): ExecutionAsset[] {
-  return executionAssets.filter(
-    (asset) =>
-      asset === "ETH" ||
-      asset === "WETH" ||
-      Number(executionBalance(snapshot, asset)) > 0,
-  );
+    : (executionHolding(snapshot, asset)?.units ??
+        (snapshot.discovery?.status === "complete" ? "0" : undefined));
 }

@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Dashboard, type DashboardActions } from "./dashboard";
 import { sample } from "../lib/__fixtures__/snapshot";
-import type { Quote } from "../lib/model";
+import type { Quote, Snapshot } from "../lib/model";
 
 vi.mock("recharts", () => ({
   ResponsiveContainer: () => null,
@@ -147,6 +147,73 @@ describe("dashboard swap controls", () => {
       "Review your supported exposure.",
     );
     expect(actions.execute).not.toHaveBeenCalled();
+  });
+  it("shows every supported token with a zero balance after a complete scan", async () => {
+    const empty: Snapshot = {
+      ...sample,
+      holdings: sample.holdings.map((holding) => ({
+        ...holding,
+        units: "0",
+        valueUsd: 0,
+      })),
+      discovery: {
+        source: "The Graph Token API / Pinax",
+        status: "complete",
+        rpcBlock: sample.rpcBlock,
+        pages: 1,
+        rejectedRows: 0,
+        holdings: [],
+        note: "",
+      },
+    };
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    actions.refresh = vi.fn().mockResolvedValue(empty);
+    await act(async () => root.render(<Dashboard actions={actions} />));
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    await type("#sell-amount", "1");
+    for (const label of ["Quick swap asset", "Asset to sell"]) {
+      const selector = get<HTMLSelectElement>(`[aria-label="${label}"]`);
+      expect(
+        Array.from(selector.options, (option) => option.textContent),
+      ).toEqual([
+        "ETH · 0",
+        "WETH · 0",
+        "DEGEN · 0",
+        "AERO · 0",
+        "AAPLc · 0",
+        "NVDAc · 0",
+      ]);
+      for (const option of Array.from(selector.options)) {
+        await act(async () => {
+          selector.value = option.value;
+          selector.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        expect(get<HTMLButtonElement>(".quick-swap button").disabled).toBe(
+          true,
+        );
+        expect(get<HTMLButtonElement>("#exit > button").disabled).toBe(true);
+        await submitSwap();
+      }
+    }
+    expect(actions.quote).not.toHaveBeenCalled();
+  });
+  it("does not display unverified missing balances as zero", async () => {
+    const select = get<HTMLSelectElement>('[aria-label="Asset to sell"]');
+    expect(
+      Array.from(select.options).find((option) => option.value === "DEGEN")
+        ?.textContent,
+    ).toBe("DEGEN · Unavailable");
+    await act(async () => {
+      select.value = "DEGEN";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await type("#sell-amount", "1");
+    expect(get<HTMLButtonElement>("#exit > button").disabled).toBe(true);
+    await submitSwap();
+    expect(actions.quote).not.toHaveBeenCalled();
   });
   it("marks additional chains as upcoming without selectable unsupported networks", () => {
     expect(get(".sidebar-bottom").textContent).toContain("Base mainnet");

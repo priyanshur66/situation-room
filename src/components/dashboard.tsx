@@ -41,7 +41,7 @@ import {
   type ExecutionAsset,
 } from "../lib/model";
 import {
-  availableExecutionAssets,
+  executionAssets,
   executionBalance,
 } from "../lib/execution-assets";
 import { errorMessage } from "../lib/errors";
@@ -187,6 +187,7 @@ function WalletDashboard({
     data = view ? analyze(view) : undefined,
     history = data?.history.slice(-days) ?? [],
     change = data && history.length ? data.total - history[0].value : 0;
+  const hasSellBalance = !!view && Number(executionBalance(view, asset)) > 0;
   async function run(
     label: string,
     fn: () => Promise<void>,
@@ -235,6 +236,7 @@ function WalletDashboard({
   }, [canAnalyze]);
   const requestQuote = () =>
     run("quote", async () => {
+      if (!hasSellBalance) return;
       setReceipt("");
       setFundingPlan(null);
       if (live && actions) {
@@ -661,6 +663,7 @@ function WalletDashboard({
                         event.preventDefault();
                         if (
                           busy ||
+                          !hasSellBalance ||
                           !Number.isFinite(Number(amount)) ||
                           Number(amount) <= 0
                         )
@@ -706,8 +709,11 @@ function WalletDashboard({
                               setFundingPlan(null);
                             }}
                           >
-                            {availableExecutionAssets(view).map((symbol) => (
-                              <option key={symbol}>{symbol}</option>
+                            {executionAssets.map((symbol) => (
+                              <option key={symbol} value={symbol}>
+                                {symbol} ·{" "}
+                                {executionBalance(view, symbol) ?? "Unavailable"}
+                              </option>
                             ))}
                           </select>
                         </div>
@@ -715,6 +721,7 @@ function WalletDashboard({
                           className="button primary"
                           disabled={
                             !!busy ||
+                            !hasSellBalance ||
                             !Number.isFinite(Number(amount)) ||
                             Number(amount) <= 0
                           }
@@ -843,8 +850,11 @@ function WalletDashboard({
                           setFundingPlan(null);
                         }}
                       >
-                        {availableExecutionAssets(view).map((symbol) => (
-                          <option key={symbol}>{symbol}</option>
+                        {executionAssets.map((symbol) => (
+                          <option key={symbol} value={symbol}>
+                            {symbol} ·{" "}
+                            {executionBalance(view, symbol) ?? "Unavailable"}
+                          </option>
                         ))}
                       </select>
                     </div>
@@ -918,6 +928,7 @@ function WalletDashboard({
                       className="button primary full-width"
                       disabled={
                         !!busy ||
+                        !hasSellBalance ||
                         !Number.isFinite(Number(amount)) ||
                         Number(amount) <= 0
                       }
