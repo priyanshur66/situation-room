@@ -1,0 +1,9 @@
+.env*
+src/lib/*.test.ts
+AGENTS.md
+CLAUDE.md
+README.md
+convex/README.md
+coverage/
+test-results/
+playwright-report/
