@@ -36,6 +36,9 @@ export const saveSnapshot = internalMutation({
       )
       .unique();
     if (row)
+      if (JSON.parse(row.payload).rpcBlock > JSON.parse(args.payload).rpcBlock)
+        return;
+    if (row)
       return await ctx.db.patch(row._id, {
         payload: args.payload,
         updatedAt: Date.now(),

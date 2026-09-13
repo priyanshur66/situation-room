@@ -40,6 +40,7 @@ import {
   type FundingPlan,
 } from "../lib/model";
 import { errorMessage } from "../lib/errors";
+import { StreamPanel } from "./stream-panel";
 export type DashboardActions = {
   connected: boolean;
   ready: boolean;
@@ -735,6 +736,7 @@ function WalletDashboard({
                       ))}
                     </div>
                   </section>
+                  <StreamPanel snapshot={view} />
                   <section className="panel">
                     <div className="panel-heading">
                       <h2>Your supported positions</h2>
@@ -1127,6 +1129,7 @@ function WalletDashboard({
             </button>
             <span className="eyebrow">TRACE THE NUMBERS</span>
             <h2 id="evidence-title">Evidence & methodology</h2>
+            <StreamPanel snapshot={view} />
             <p>
               The Graph supplies Uniswap V3 pool price, TVL, volume and
               historical prices. RPC reads current balances, verifies contracts,

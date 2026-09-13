@@ -1,3 +1,4 @@
+import type { StreamEvidence } from "./stream-evidence";
 export type Asset = "ETH" | "WETH" | "USDC";
 export type Day = {
   date: number;
@@ -22,6 +23,7 @@ export type Snapshot = {
   subgraphId: string;
   holdings: { symbol: Asset; units: string; valueUsd: number }[];
   pools: Pool[];
+  stream?: StreamEvidence;
 };
 export type Quote = {
   source: "live";
