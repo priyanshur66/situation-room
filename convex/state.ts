@@ -103,6 +103,23 @@ export const claim = mutation({
       );
     if (row.expiresAt < Date.now())
       throw new ConvexError("Quote expired. Request a fresh quote.");
+    const payments = await ctx.db
+      .query("payments")
+      .withIndex("by_owner_wallet", (q) =>
+        q.eq("owner", user.subject).eq("wallet", row.wallet),
+      )
+      .collect();
+    const swaps = await ctx.db
+      .query("plans")
+      .withIndex("by_owner", (q) => q.eq("owner", user.subject))
+      .collect();
+    if (
+      payments.some((p) => p.status === "active") ||
+      swaps.some((p) => p.wallet === row.wallet && p.status === "executing")
+    )
+      throw new ConvexError(
+        "Finish the active wallet transaction before starting another swap.",
+      );
     await ctx.db.patch(row._id, { status: "executing" });
   },
 });

@@ -1,6 +1,38 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 export default defineSchema({
+  preferences: defineTable({
+    owner: v.string(),
+    wallet: v.string(),
+    payload: v.string(),
+    message: v.string(),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    approvedAt: v.optional(v.number()),
+    signature: v.optional(v.string()),
+  }).index("by_owner_wallet", ["owner", "wallet"]),
+  payments: defineTable({
+    owner: v.string(),
+    wallet: v.string(),
+    preferenceId: v.id("preferences"),
+    payload: v.string(),
+    amount: v.string(),
+    status: v.union(
+      v.literal("quoted"),
+      v.literal("active"),
+      v.literal("confirmed"),
+      v.literal("cancelled"),
+    ),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    startedAt: v.optional(v.number()),
+    step: v.number(),
+    hashes: v.array(v.string()),
+    issued: v.boolean(),
+    pendingHash: v.optional(v.string()),
+    delegationPolicyId: v.optional(v.string()),
+    nonce: v.optional(v.number()),
+  }).index("by_owner_wallet", ["owner", "wallet"]),
   snapshots: defineTable({
     owner: v.string(),
     wallet: v.string(),

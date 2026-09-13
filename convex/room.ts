@@ -21,7 +21,7 @@ import {
   type FundingPlan,
 } from "../src/lib/model";
 
-async function owner(ctx: ActionCtx, bucket: string) {
+export async function owner(ctx: ActionCtx, bucket: string) {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) throw new ConvexError("Sign in with Privy first.");
   await ctx.runMutation(internal.state.rateLimit, {
@@ -30,7 +30,7 @@ async function owner(ctx: ActionCtx, bucket: string) {
   });
   return identity.subject;
 }
-async function verifyWallet(subject: string, wallet: string) {
+export async function verifyWallet(subject: string, wallet: string) {
   let address: string;
   try {
     address = getAddress(wallet).toLowerCase();
@@ -68,7 +68,7 @@ async function verifyWallet(subject: string, wallet: string) {
     );
   return address;
 }
-async function snapshotFor(ctx: ActionCtx, subject: string, wallet: string) {
+export async function snapshotFor(ctx: ActionCtx, subject: string, wallet: string) {
   const row = await ctx.runQuery(internal.state.snapshot, {
     owner: subject,
     wallet,

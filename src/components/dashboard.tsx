@@ -1,6 +1,12 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Activity,
   ArrowUpRight,
@@ -52,6 +58,7 @@ export type DashboardActions = {
 };
 
 type DashboardProps = {
+  paymentControl?: ReactNode;
   actions?: DashboardActions;
   savedSnapshot?: Snapshot;
   unavailableReason?: string;
@@ -103,6 +110,7 @@ function AnalysisLoading({ compact = false }: { compact?: boolean }) {
 }
 
 function WalletDashboard({
+  paymentControl,
   actions,
   savedSnapshot,
   unavailableReason,
@@ -286,6 +294,7 @@ function WalletDashboard({
             <span>Situation overview</span>
           </div>
           <div className="topbar-actions">
+            {paymentControl}
             <span className={`status-pill ${live ? "green" : "amber"}`}>
               <span className="dot" />
               {live ? "WALLET SNAPSHOT" : "NO WALLET DATA"}
@@ -415,9 +424,7 @@ function WalletDashboard({
               >
                 {actions?.connected ? "Retry analysis" : "Connect wallet"}
               </button>
-              <p className="disclaimer">
-                ETH, WETH and USDC on Base only.
-              </p>
+              <p className="disclaimer">ETH, WETH and USDC on Base only.</p>
             </section>
           )}
           {view && data && (

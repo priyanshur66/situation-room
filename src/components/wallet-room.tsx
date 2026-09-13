@@ -20,6 +20,7 @@ import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import type { Quote, Snapshot } from "@/lib/model";
 import { Dashboard } from "./dashboard";
+import { PaymentCenter } from "./payment-center";
 
 const client = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 function usePrivyAuth() {
@@ -175,6 +176,15 @@ function ConnectedRoom() {
   }
   return (
     <Dashboard
+      paymentControl={
+        active && wallet ? (
+          <PaymentCenter
+            key={wallet.address}
+            wallet={wallet}
+            refresh={() => refresh({ wallet: address! })}
+          />
+        ) : undefined
+      }
       key={`${user?.id ?? "guest"}:${address ?? "none"}`}
       savedSnapshot={
         saved ? (JSON.parse(saved.payload) as Snapshot) : undefined

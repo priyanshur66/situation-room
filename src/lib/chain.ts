@@ -103,6 +103,7 @@ export async function quoteExit(
   amount: string,
   snapshot: Snapshot,
   client = rpc(),
+  lifetimeMs = 60000,
 ): Promise<Quote> {
   const address = getAddress(wallet),
     amountIn = parseAmount(amount, 18);
@@ -167,7 +168,7 @@ export async function quoteExit(
     throw new Error(
       "Quote diverges more than 5% from indexed evidence. Refresh and investigate before exiting.",
     );
-  const expiresAt = Date.now() + 60000;
+  const expiresAt = Date.now() + Math.min(300000, lifetimeMs);
   const transactions: Quote["transactions"] = [];
   const [native, tokenBalance, allowance, fees] = await Promise.all([
     client.getBalance({ address }),

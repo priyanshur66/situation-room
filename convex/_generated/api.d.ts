@@ -8,6 +8,9 @@
  * @module
  */
 
+import type * as delegation from "../delegation.js";
+import type * as paymentState from "../paymentState.js";
+import type * as payments from "../payments.js";
 import type * as room from "../room.js";
 import type * as state from "../state.js";
 
@@ -18,6 +21,9 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  delegation: typeof delegation;
+  paymentState: typeof paymentState;
+  payments: typeof payments;
   room: typeof room;
   state: typeof state;
 }>;
