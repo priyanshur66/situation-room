@@ -77,6 +77,7 @@ function ConnectedRoom() {
   const refresh = useAction(api.room.refresh),
     quote = useAction(api.room.quote),
     ask = useAction(api.room.ask);
+  const funding = useAction(api.room.funding);
   const prepare = useAction(api.room.prepareStep),
     confirm = useAction(api.room.confirmStep);
   const claim = useMutation(api.state.claim),
@@ -194,6 +195,7 @@ function ConnectedRoom() {
         refresh: () => refresh({ wallet: address! }),
         quote: (asset, amount) => quote({ wallet: address!, asset, amount }),
         ask: (question) => ask({ wallet: address!, question }),
+        funding: (target) => funding({ wallet: address!, target }),
         execute,
         pendingHash: recovery?.hash,
         verifyPending,

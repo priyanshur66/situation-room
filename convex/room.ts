@@ -11,12 +11,14 @@ import {
   rpc,
   contracts,
   simulateStep,
+  planFunding,
 } from "../src/lib/chain";
 import {
   analyze,
   parseAmount,
   type Snapshot,
   type Quote,
+  type FundingPlan,
 } from "../src/lib/model";
 
 async function owner(ctx: ActionCtx, bucket: string) {
@@ -152,6 +154,39 @@ export const quote = action({
       expiresAt: result.expiresAt,
     });
     return { ...result, planId: id };
+  },
+});
+export const funding = action({
+  args: { wallet: v.string(), target: v.string() },
+  handler: async (ctx, a): Promise<FundingPlan> => {
+    const subject = await owner(ctx, "quote"),
+      wallet = await verifyWallet(subject, a.wallet);
+    try {
+      parseAmount(a.target, 6);
+    } catch {
+      throw new ConvexError(
+        "Enter a positive USDC target with at most six decimal places.",
+      );
+    }
+    const snapshot = await snapshotFor(ctx, subject, wallet);
+    let plan: FundingPlan;
+    try {
+      plan = await planFunding(snapshot, a.target);
+    } catch {
+      throw new ConvexError(
+        "No single supported position could safely fund this target. Check your ETH gas balance, try a smaller target, or refresh your analysis.",
+      );
+    }
+    if (plan.quote) {
+      const id = await ctx.runMutation(internal.state.createPlan, {
+        owner: subject,
+        wallet,
+        payload: JSON.stringify(plan.quote),
+        expiresAt: plan.quote.expiresAt,
+      });
+      plan.quote.planId = id;
+    }
+    return plan;
   },
 });
 export const prepareStep = action({

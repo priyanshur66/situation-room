@@ -40,6 +40,14 @@ export type Quote = {
   transactions: { to: string; data: string; value: string; label: string }[];
   planId?: string;
 };
+export type FundingPlan = {
+  target: string;
+  existingUsdc: string;
+  shortfall: string;
+  quote: Quote | null;
+  options: { asset: "ETH" | "WETH"; amount: string; costUsd: number }[];
+  note: string;
+};
 export function analyze(s: Snapshot) {
   const total = s.holdings.reduce((sum, h) => sum + h.valueUsd, 0);
   const eth = s.holdings

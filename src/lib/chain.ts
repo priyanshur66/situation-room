@@ -10,7 +10,13 @@ import {
   type Hex,
 } from "viem";
 import { base } from "viem/chains";
-import { parseAmount, type Pool, type Quote, type Snapshot } from "./model";
+import {
+  parseAmount,
+  type Pool,
+  type Quote,
+  type Snapshot,
+  type FundingPlan,
+} from "./model";
 
 export const contracts = {
   weth: "0x4200000000000000000000000000000000000006",
@@ -26,6 +32,7 @@ export const routerAbi = parseAbi([
 ]);
 const quoterAbi = parseAbi([
   "function quoteExactInputSingle((address tokenIn,address tokenOut,uint256 amountIn,uint24 fee,uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut,uint160 sqrtPriceX96After,uint32 initializedTicksCrossed,uint256 gasEstimate)",
+  "function quoteExactOutputSingle((address tokenIn,address tokenOut,uint256 amount,uint24 fee,uint160 sqrtPriceLimitX96) params) returns (uint256 amountIn,uint160 sqrtPriceX96After,uint32 initializedTicksCrossed,uint256 gasEstimate)",
 ]);
 const factoryAbi = parseAbi([
   "function getPool(address,address,uint24) view returns (address)",
@@ -33,16 +40,23 @@ const factoryAbi = parseAbi([
 export function rpc() {
   return createPublicClient({
     chain: base,
-    transport: http(process.env.BASE_RPC_URL || "https://mainnet.base.org", {
-      timeout: 15000,
-      retryCount: 1,
-    }),
+    transport: http(
+      process.env.BASE_RPC_URL || "https://base-rpc.publicnode.com",
+      {
+        batch: { wait: 20 },
+        timeout: 15000,
+        retryCount: 1,
+      },
+    ),
   });
 }
 
-export async function readHoldings(wallet: string, price: number) {
-  const client = rpc(),
-    address = getAddress(wallet),
+export async function readHoldings(
+  wallet: string,
+  price: number,
+  client = rpc(),
+) {
+  const address = getAddress(wallet),
     blockNumber = await client.getBlockNumber();
   const [native, weth, usdc] = await Promise.all([
     client.getBalance({ address, blockNumber }),
@@ -157,18 +171,22 @@ export async function quoteExit(
   const transactions: Quote["transactions"] = [];
   const [native, tokenBalance, allowance, fees] = await Promise.all([
     client.getBalance({ address }),
-    client.readContract({
-      address: contracts.weth,
-      abi: erc20Abi,
-      functionName: "balanceOf",
-      args: [address],
-    }),
-    client.readContract({
-      address: contracts.weth,
-      abi: erc20Abi,
-      functionName: "allowance",
-      args: [address, contracts.router],
-    }),
+    asset === "WETH"
+      ? client.readContract({
+          address: contracts.weth,
+          abi: erc20Abi,
+          functionName: "balanceOf",
+          args: [address],
+        })
+      : Promise.resolve(BigInt(0)),
+    asset === "WETH"
+      ? client.readContract({
+          address: contracts.weth,
+          abi: erc20Abi,
+          functionName: "allowance",
+          args: [address, contracts.router],
+        })
+      : Promise.resolve(BigInt(0)),
     client.estimateFeesPerGas(),
   ]);
   if ((asset === "ETH" ? native : tokenBalance) < amountIn)
@@ -270,4 +288,90 @@ export async function simulateStep(
     value: BigInt(tx.value),
   });
   return tx;
+}
+
+export async function planFunding(
+  snapshot: Snapshot,
+  target: string,
+  client = rpc(),
+): Promise<FundingPlan> {
+  const desired = parseAmount(target, 6);
+  const balances = await readHoldings(
+    snapshot.wallet,
+    snapshot.pools[0].price,
+    client,
+  );
+  const existingUsdc = balances.holdings.find(
+    (h) => h.symbol === "USDC",
+  )!.units;
+  const available =
+    existingUsdc === "0" ? BigInt(0) : parseAmount(existingUsdc, 6);
+  const shortfall = desired > available ? desired - available : BigInt(0);
+  if (!shortfall)
+    return {
+      target,
+      existingUsdc,
+      shortfall: "0",
+      quote: null,
+      options: [],
+      note: "Your current USDC already covers this target. No liquidation is needed. This does not make a payment.",
+    };
+  // Aim above the target so the 0.5% slippage floor still covers the shortfall.
+  const output = (shortfall * BigInt(10000) + BigInt(9949)) / BigInt(9950);
+  const inputs = await Promise.allSettled(
+    snapshot.pools.map(async (pool) => {
+      const { result } = await client.simulateContract({
+        address: contracts.quoter,
+        abi: quoterAbi,
+        functionName: "quoteExactOutputSingle",
+        args: [
+          {
+            tokenIn: contracts.weth,
+            tokenOut: contracts.usdc,
+            amount: output,
+            fee: pool.fee,
+            sqrtPriceLimitX96: BigInt(0),
+          },
+        ],
+      });
+      return result[0];
+    }),
+  );
+  const amounts = inputs
+    .flatMap((r) =>
+      r.status === "fulfilled" && r.value > BigInt(0) ? [r.value] : [],
+    )
+    .sort((a, b) => (a < b ? -1 : 1));
+  if (!amounts.length)
+    throw new Error("No supported pool can cover this target.");
+  const amount = formatUnits(amounts[0], 18);
+  const candidates = await Promise.allSettled(
+    (["ETH", "WETH"] as const).map((asset) =>
+      quoteExit(snapshot.wallet, asset, amount, snapshot, client),
+    ),
+  );
+  const quotes = candidates
+    .flatMap((r) =>
+      r.status === "fulfilled" &&
+      parseAmount(r.value.minimumOut, 6) >= shortfall
+        ? [r.value]
+        : [],
+    )
+    .sort((a, b) => a.gasUsd - b.gasUsd);
+  if (!quotes.length)
+    throw new Error(
+      "No single supported position can safely cover this target with current balances, slippage and gas. Try a smaller target or refresh your analysis.",
+    );
+  return {
+    target,
+    existingUsdc,
+    shortfall: formatUnits(shortfall, 6),
+    quote: quotes[0],
+    options: quotes.map((q) => ({
+      asset: q.asset,
+      amount: q.amountIn,
+      costUsd: Number(q.amountIn) * snapshot.pools[0].price + q.gasUsd,
+    })),
+    note: "Existing USDC is used first. Among feasible ETH/WETH candidates, this selects the smaller conservative gas budget for the same token amount. It is not a global optimizer. The quote includes a slippage buffer; all USDC stays in your wallet.",
+  };
 }

@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Activity,
   ArrowRight,
@@ -33,6 +33,7 @@ import {
   shortAddress,
   type Snapshot,
   type Quote,
+  type FundingPlan,
 } from "@/lib/model";
 import { sample } from "@/lib/sample";
 export type DashboardActions = {
@@ -49,6 +50,7 @@ export type DashboardActions = {
   quote: (asset: "ETH" | "WETH", amount: string) => Promise<Quote>;
   execute: (q: Quote) => Promise<string>;
   ask: (question: string) => Promise<string>;
+  funding: (target: string) => Promise<FundingPlan>;
 };
 
 export function Dashboard({
@@ -71,6 +73,45 @@ export function Dashboard({
     [answer, setAnswer] = useState(""),
     [evidence, setEvidence] = useState(false);
   const snapshot = localSnapshot ?? savedSnapshot ?? sample;
+  const [target, setTarget] = useState("2000"),
+    [fundingPlan, setFundingPlan] = useState<FundingPlan | null>(null);
+  const [clock, setClock] = useState(() => Date.now());
+  const modalRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (quote?.source !== "live") return;
+    const timer = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [quote]);
+  useEffect(() => {
+    if (!evidence || !modalRef.current) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const controls =
+      modalRef.current.querySelectorAll<HTMLElement>("button, a[href]");
+    const first = controls[0],
+      last = controls[controls.length - 1];
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    first?.focus();
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setEvidence(false);
+      if (event.key === "Tab") {
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", keydown);
+    return () => {
+      document.removeEventListener("keydown", keydown);
+      document.body.style.overflow = overflow;
+      previous?.focus({ preventScroll: true });
+    };
+  }, [evidence]);
+  const quoteExpired = !!quote && clock >= quote.expiresAt;
   const live =
     snapshot.mode === "live" &&
     actions?.connected &&
@@ -97,6 +138,7 @@ export function Dashboard({
       if (actions) {
         setSnapshot(await actions.refresh());
         setQuote(null);
+        setFundingPlan(null);
         setAnswer("");
         setReceipt("");
       }
@@ -104,6 +146,7 @@ export function Dashboard({
   const requestQuote = () =>
     run("quote", async () => {
       setReceipt("");
+      setFundingPlan(null);
       if (live && actions) {
         setQuote(await actions.quote(asset, amount));
         return;
@@ -113,7 +156,7 @@ export function Dashboard({
         asset,
         amountIn: amount,
         amountOut: (Number(amount) * 2517 * 0.997).toFixed(6),
-        minimumOut: (Number(amount) * 2517 * 0.992).toFixed(6),
+        minimumOut: (Number(amount) * 2517 * 0.997 * 0.995).toFixed(6),
         gasUsd: 0.03,
         gasUnits: "180000",
         fee: 3000,
@@ -595,18 +638,22 @@ export function Dashboard({
                   <input
                     id="sell-amount"
                     inputMode="decimal"
+                    disabled={!!busy}
                     value={amount}
                     onChange={(e) => {
                       setAmount(e.target.value);
                       setQuote(null);
+                      setFundingPlan(null);
                     }}
                   />
                   <select
                     aria-label="Asset to sell"
+                    disabled={!!busy}
                     value={asset}
                     onChange={(e) => {
                       setAsset(e.target.value as "ETH" | "WETH");
                       setQuote(null);
+                      setFundingPlan(null);
                     }}
                   >
                     <option>ETH</option>
@@ -625,7 +672,7 @@ export function Dashboard({
                     <strong>
                       {quote
                         ? Number(quote.amountOut).toLocaleString("en-US", {
-                            maximumFractionDigits: 2,
+                            maximumFractionDigits: 6,
                           })
                         : "—"}
                     </strong>
@@ -653,7 +700,7 @@ export function Dashboard({
                     <>
                       <div>
                         <span>Minimum received</span>
-                        <span>{Number(quote.minimumOut).toFixed(2)} USDC</span>
+                        <span>{quote.minimumOut} USDC</span>
                       </div>
                       <div>
                         <span>Pool fee</span>
@@ -694,17 +741,20 @@ export function Dashboard({
                     <p>
                       {quote.source === "sample"
                         ? "Connect and analyze your wallet for a fresh onchain quote and explicit approval."
-                        : "Check the minimum received and gas. Quotes expire after 60 seconds."}
+                        : quoteExpired
+                          ? "Quote expired. Find a fresh route before approving."
+                          : "Check the minimum received and gas. Quotes expire after 60 seconds."}
                     </p>
                     {quote.source === "live" && live && (
                       <button
                         className="button primary full-width"
-                        disabled={!!busy}
+                        disabled={!!busy || quoteExpired}
                         onClick={() =>
                           run("execute", async () => {
                             if (actions) {
                               setReceipt(await actions.execute(quote));
                               setQuote(null);
+                              setFundingPlan(null);
                               setSnapshot(await actions.refresh());
                             }
                           })
@@ -796,9 +846,98 @@ export function Dashboard({
                 </form>
                 <small className="assistant-caption">
                   {live
-                    ? "OpenAI + deterministic evidence · not financial advice"
+                    ? "Questions and supported balances go to OpenAI; your wallet address is omitted. AI explanations are not financial advice."
                     : "Sample explanation · AI is used with live wallets"}
                 </small>
+              </section>
+              <section className="panel funding-panel">
+                <span className="eyebrow">FUND A SPENDING BALANCE</span>
+                <h2>Start with a USDC target.</h2>
+                <p className="panel-description">
+                  Use existing stables before selling a position. Funds stay in
+                  your wallet.
+                </p>
+                <label className="field-label" htmlFor="funding-target">
+                  Target total USDC balance
+                </label>
+                <div className="amount-field">
+                  <input
+                    id="funding-target"
+                    inputMode="decimal"
+                    disabled={!!busy}
+                    value={target}
+                    onChange={(e) => {
+                      setTarget(e.target.value);
+                      setFundingPlan(null);
+                      setQuote(null);
+                    }}
+                  />
+                  <span>USDC</span>
+                </div>
+                <button
+                  className="button full-width"
+                  disabled={
+                    !!busy ||
+                    !Number.isFinite(Number(target)) ||
+                    Number(target) <= 0
+                  }
+                  onClick={() =>
+                    run("funding", async () => {
+                      if (live && actions) {
+                        const plan = await actions.funding(target);
+                        setFundingPlan(plan);
+                        setQuote(plan.quote);
+                        if (plan.quote) {
+                          setAsset(plan.quote.asset);
+                          setAmount(plan.quote.amountIn);
+                        }
+                      } else
+                        setFundingPlan({
+                          target,
+                          existingUsdc: String(data.stables),
+                          shortfall: String(
+                            Math.max(0, Number(target) - data.stables),
+                          ),
+                          quote: null,
+                          options: [],
+                          note: "Sample preview only. A live wallet is required to compare feasible exits and prepare a transaction.",
+                        });
+                    })
+                  }
+                >
+                  {busy === "funding"
+                    ? "Comparing positions…"
+                    : live
+                      ? "Prepare funding plan"
+                      : "Preview funding gap"}
+                </button>
+                {fundingPlan && (
+                  <div className="funding-result" role="status">
+                    <div className="quote-details">
+                      <div>
+                        <span>Already in USDC</span>
+                        <span>{money(Number(fundingPlan.existingUsdc))}</span>
+                      </div>
+                      <div>
+                        <span>Additional USDC needed</span>
+                        <span>{money(Number(fundingPlan.shortfall))}</span>
+                      </div>
+                      {fundingPlan.options.map((o) => (
+                        <div key={o.asset}>
+                          <span>{o.asset} · indexed input + gas budget</span>
+                          <span>{money(o.costUsd)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p>{fundingPlan.note}</p>
+                    {fundingPlan.quote && (
+                      <p>
+                        Selected {fundingPlan.quote.asset}. Review the prepared
+                        quote above. No funds have moved.
+                      </p>
+                    )}
+                  </div>
+                )}
               </section>
               <section className="card-preview">
                 <div>
@@ -834,6 +973,7 @@ export function Dashboard({
       {evidence && (
         <div className="modal-backdrop" onClick={() => setEvidence(false)}>
           <section
+            ref={modalRef}
             className="evidence-modal"
             role="dialog"
             aria-modal="true"
