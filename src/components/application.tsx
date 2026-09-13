@@ -10,6 +10,8 @@ export function Application() {
     !process.env.NEXT_PUBLIC_PRIVY_APP_ID ||
     !process.env.NEXT_PUBLIC_CONVEX_URL
   )
-    return <Dashboard />;
+    return (
+      <Dashboard unavailableReason="Wallet authentication or the data service is not configured. Real balances cannot be loaded." />
+    );
   return <WalletRoom />;
 }

@@ -1,11 +1,11 @@
-import type { Snapshot } from "./model";
+import type { Snapshot } from "../model";
 const prices = [
   2708, 2685, 2730, 2721, 2690, 2664, 2710, 2655, 2675, 2614, 2642, 2575, 2558,
   2517,
 ];
 export const sample: Snapshot = {
-  mode: "sample",
-  wallet: "Illustrative wallet",
+  mode: "live",
+  wallet: "0x0000000000000000000000000000000000000001",
   fetchedAt: Date.UTC(2026, 8, 13, 8),
   indexedAt: Date.UTC(2026, 8, 13, 7, 58) / 1000,
   block: 51248000,

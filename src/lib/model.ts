@@ -13,7 +13,7 @@ export type Pool = {
   days: Day[];
 };
 export type Snapshot = {
-  mode: "sample" | "live";
+  mode: "live";
   wallet: string;
   fetchedAt: number;
   indexedAt: number;
@@ -24,7 +24,7 @@ export type Snapshot = {
   pools: Pool[];
 };
 export type Quote = {
-  source: "sample" | "live";
+  source: "live";
   asset: "ETH" | "WETH";
   amountIn: string;
   amountOut: string;

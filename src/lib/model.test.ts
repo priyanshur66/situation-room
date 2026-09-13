@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyze, parseAmount } from "./model";
-import { sample } from "./sample";
+import { sample } from "./__fixtures__/snapshot";
 describe("exact amounts", () => {
   it("preserves 18 decimals without floating point", () => {
     expect(parseAmount("1.000000000000000001", 18)).toBe(1000000000000000001n);

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { decodeFunctionData, erc20Abi } from "viem";
 import { quoteExit, planFunding, contracts, routerAbi, rpc } from "./chain";
-import { sample } from "./sample";
+import { sample } from "./__fixtures__/snapshot";
 const wallet = "0x0000000000000000000000000000000000000001";
 function setup({
   balance = 1000000000000000000n,

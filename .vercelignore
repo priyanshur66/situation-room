@@ -1,5 +1,7 @@
 .env*
 src/lib/*.test.ts
+src/components/*.test.tsx
+src/lib/__fixtures__/
 AGENTS.md
 CLAUDE.md
 README.md

@@ -302,7 +302,7 @@ h1 {
   color: var(--muted);
   font-size: 14px;
 }
-.sample-banner {
+.status-banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -315,17 +315,17 @@ h1 {
   margin-bottom: 22px;
   font-size: 11px;
 }
-.sample-banner span,
-.sample-banner button {
+.status-banner span,
+.status-banner button {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.sample-banner b {
+.status-banner b {
   font-weight: 550;
   color: #d9e4d4;
 }
-.sample-banner button {
+.status-banner button {
   color: #d0e7c8;
   white-space: nowrap;
 }
@@ -857,48 +857,19 @@ td b {
   margin-top: 18px;
   color: #cedbd1;
 }
-.card-preview {
-  border: 1px dashed #425349;
-  padding: 23px;
-  border-radius: 9px;
-  background: linear-gradient(125deg, #233129, #151f1a);
-}
-.card-preview > div:first-child {
+.empty-wallet {
+  min-height: 340px;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  color: #b9c8be;
-  font-size: 9px;
-  letter-spacing: 1px;
+  justify-content: center;
+  gap: 20px;
+  text-align: center;
 }
-.card-preview .badge {
-  margin-left: auto;
-}
-.card-preview h3 {
-  font-size: 19px;
-  font-weight: 500;
-  letter-spacing: -0.5px;
-  margin-top: 20px;
-}
-.card-preview p {
-  font-size: 11px;
-  color: #94a99b;
-  margin-top: 9px;
-}
-.preview-balance {
-  border-top: 1px solid #3b4d40;
-  margin-top: 20px;
-  padding-top: 14px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 10px;
-  color: #9db1a3;
-}
-.preview-balance strong {
-  font-size: 17px;
-  font-weight: 500;
-  color: #cbe2d1;
+.empty-wallet > p {
+  max-width: 560px;
+  color: var(--muted);
+  line-height: 1.7;
 }
 .receipt-link {
   display: flex;
@@ -992,7 +963,7 @@ footer > span {
   .panel-description,
   .risk-row p,
   .quote-details,
-  .sample-banner {
+  .status-banner {
     font-size: 13px;
   }
   .content-grid {
@@ -1048,10 +1019,10 @@ footer > span {
   .map-tag {
     display: none;
   }
-  .sample-banner span {
+  .status-banner span {
     display: inline;
   }
-  .sample-banner svg {
+  .status-banner svg {
     display: none;
   }
   h1 {
@@ -1185,7 +1156,7 @@ footer > span {
   .page-heading > .button {
     margin-top: 18px;
   }
-  .sample-banner {
+  .status-banner {
     align-items: flex-start;
     flex-direction: column;
     font-size: 11px;
