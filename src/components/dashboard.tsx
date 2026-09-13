@@ -39,6 +39,10 @@ export type DashboardActions = {
   connected: boolean;
   ready: boolean;
   wallet?: string;
+  wallets: { address: string; label: string }[];
+  selectWallet: (address: string) => void;
+  pendingHash?: string;
+  verifyPending: () => Promise<string>;
   connect: () => void;
   disconnect: () => void;
   refresh: () => Promise<Snapshot>;
@@ -47,8 +51,14 @@ export type DashboardActions = {
   ask: (question: string) => Promise<string>;
 };
 
-export function Dashboard({ actions }: { actions?: DashboardActions }) {
-  const [snapshot, setSnapshot] = useState(sample),
+export function Dashboard({
+  actions,
+  savedSnapshot,
+}: {
+  actions?: DashboardActions;
+  savedSnapshot?: Snapshot;
+}) {
+  const [localSnapshot, setSnapshot] = useState<Snapshot | null>(null),
     [section, setSection] = useState("Overview"),
     [days, setDays] = useState(14);
   const [asset, setAsset] = useState<"ETH" | "WETH">("ETH"),
@@ -60,6 +70,7 @@ export function Dashboard({ actions }: { actions?: DashboardActions }) {
     [question, setQuestion] = useState(""),
     [answer, setAnswer] = useState(""),
     [evidence, setEvidence] = useState(false);
+  const snapshot = localSnapshot ?? savedSnapshot ?? sample;
   const live =
     snapshot.mode === "live" &&
     actions?.connected &&
@@ -184,7 +195,8 @@ export function Dashboard({ actions }: { actions?: DashboardActions }) {
             </span>
             <button
               className="button"
-              disabled={actions && !actions.ready}
+              title={actions?.connected ? "Sign out" : "Connect wallet"}
+              disabled={!!busy || (actions && !actions.ready)}
               onClick={() =>
                 actions
                   ? actions.connected
@@ -203,10 +215,61 @@ export function Dashboard({ actions }: { actions?: DashboardActions }) {
           </div>
         </header>
         <main id="overview">
+          {actions?.connected && (
+            <div className="wallet-selection">
+              <label htmlFor="active-wallet">Analyze wallet</label>
+              <select
+                id="active-wallet"
+                value={actions.wallet}
+                onChange={(e) => actions.selectWallet(e.target.value)}
+                disabled={!!busy}
+              >
+                {actions.wallets.map((w) => (
+                  <option key={w.address} value={w.address}>
+                    {w.label} · {shortAddress(w.address)}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="text-button"
+                onClick={() => navigator.clipboard.writeText(actions.wallet!)}
+              >
+                Copy address
+              </button>
+              <span>Base ETH / WETH / USDC only</span>
+            </div>
+          )}
+          {actions?.pendingHash && (
+            <div className="sample-banner" role="status">
+              <span>
+                Transaction submitted. Verify its receipt before sending again.
+              </span>
+              <a
+                href={`https://basescan.org/tx/${actions.pendingHash}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                View transaction ↗
+              </a>
+              <button
+                disabled={!!busy}
+                onClick={() =>
+                  run("verify", async () => {
+                    const result = await actions.verifyPending();
+                    if (result.startsWith("0x")) setReceipt(result);
+                    else setError(result);
+                    setQuote(null);
+                  })
+                }
+              >
+                {busy === "verify" ? "Checking…" : "Check confirmation"}
+              </button>
+            </div>
+          )}
           <div className="page-heading">
             <div>
               <span className="eyebrow">— CLARITY BEFORE YOU ACT</span>
-              <h1>Your portfolio. The full picture.</h1>
+              <h1>Your positions. A clearer picture.</h1>
               <p>From displayed value to spendable reality.</p>
             </div>
             <button
@@ -581,7 +644,7 @@ export function Dashboard({ actions }: { actions?: DashboardActions }) {
                     <span>0.50%</span>
                   </div>
                   <div>
-                    <span>Gas estimate</span>
+                    <span>Conservative gas budget</span>
                     <span>
                       {quote ? money(quote.gasUsd, 4) : "Quote to calculate"}
                     </span>
@@ -639,8 +702,11 @@ export function Dashboard({ actions }: { actions?: DashboardActions }) {
                         disabled={!!busy}
                         onClick={() =>
                           run("execute", async () => {
-                            if (actions)
+                            if (actions) {
                               setReceipt(await actions.execute(quote));
+                              setQuote(null);
+                              setSnapshot(await actions.refresh());
+                            }
                           })
                         }
                       >

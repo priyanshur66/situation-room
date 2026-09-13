@@ -1268,3 +1268,25 @@ footer > span {
     transition: none !important;
   }
 }
+.wallet-selection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  font-size: 13px;
+  color: #9faeb1;
+}
+.wallet-selection select {
+  background: #192c34;
+  color: #e0e8e8;
+  padding: 8px;
+  border: 1px solid #33464d;
+  border-radius: 6px;
+}
+.text-button {
+  color: #a8e6ca;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}

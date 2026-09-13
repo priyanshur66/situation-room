@@ -1,4 +1,4 @@
-import { Dashboard } from "@/components/dashboard";
+import { Application } from "@/components/application";
 export default function Page() {
-  return <Dashboard />;
+  return <Application />;
 }
