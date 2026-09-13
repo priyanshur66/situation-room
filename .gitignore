@@ -1,0 +1,11 @@
+node_modules/
+.next/
+.convex/
+.env*
+!.env.example
+*.tsbuildinfo
+.DS_Store
+MEMORY.md
+MEMORY-*.md
+memory.md
+memory-*.md
