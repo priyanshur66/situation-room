@@ -57,7 +57,7 @@ export default function WalletRoom() {
 }
 function ConnectedRoom() {
   const { ready, authenticated, user, login, logout } = usePrivy();
-  const { wallets } = useWallets();
+  const { wallets, ready: walletsReady } = useWallets();
   const { isAuthenticated, isLoading } = useConvexAuth();
   const { sendTransaction } = useSendTransaction();
   const [selected, setSelected] = useState("");
@@ -73,7 +73,8 @@ function ConnectedRoom() {
     linked.find((w) => w.walletClientType === "privy") ??
     linked[0];
   const address = wallet?.address;
-  const active = authenticated && isAuthenticated && !!address;
+  const active =
+    ready && walletsReady && authenticated && isAuthenticated && !!address;
   const refresh = useAction(api.room.refresh),
     quote = useAction(api.room.quote),
     ask = useAction(api.room.ask);
@@ -180,7 +181,7 @@ function ConnectedRoom() {
       }
       actions={{
         connected: active,
-        ready: ready && (!authenticated || !isLoading),
+        ready: ready && (!authenticated || (walletsReady && !isLoading)),
         wallet: address,
         wallets: linked.map((w) => ({
           address: w.address,

@@ -53,10 +53,10 @@ describe("real wallet data boundary", () => {
     expectNoPortfolio(html);
     expect(html).toContain("Connect your wallet to begin");
   });
-  it("shows an unloaded state for a connected wallet without a snapshot", () => {
+  it("starts with analysis in progress for a connected wallet without a snapshot", () => {
     const html = renderToStaticMarkup(<Dashboard actions={actions} />);
     expectNoPortfolio(html);
-    expect(html).toContain("Your wallet data has not been loaded");
+    expect(html).toContain("Analyzing your wallet");
   });
   it("rejects snapshots belonging to a different wallet", () => {
     expectNoPortfolio(

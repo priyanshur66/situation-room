@@ -1253,6 +1253,111 @@ footer > span {
     transition: none !important;
   }
 }
+.analysis-loading {
+  min-height: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  text-align: center;
+  margin-bottom: 24px;
+  animation: analysis-enter 350ms ease-out both;
+}
+.analysis-orbit {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  flex-shrink: 0;
+  color: var(--green);
+  border-radius: 50%;
+  background: #b8f0c908;
+}
+.analysis-orbit::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--green);
+  border-radius: 50%;
+  animation: spin 1.8s linear infinite;
+}
+.analysis-copy {
+  max-width: 560px;
+}
+.analysis-copy h2 {
+  margin-bottom: 12px;
+}
+.analysis-copy p {
+  color: var(--muted);
+  line-height: 1.7;
+}
+.analysis-sources {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 24px 0 18px;
+}
+.analysis-sources span {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 6px 12px;
+  color: var(--green);
+  font-size: 11px;
+}
+.analysis-track {
+  overflow: hidden;
+  height: 3px;
+  border-radius: 4px;
+  background: var(--line);
+  margin: 0 auto 20px;
+  max-width: 300px;
+}
+.analysis-track::after {
+  content: "";
+  display: block;
+  height: 100%;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, var(--green), transparent);
+  animation: analysis-sweep 2s ease-in-out infinite;
+}
+.analysis-compact {
+  min-height: auto;
+  flex-direction: row;
+  text-align: left;
+}
+.analysis-compact .analysis-orbit {
+  width: 48px;
+  height: 48px;
+}
+.analysis-compact h2 {
+  font-size: 16px;
+  margin-bottom: 4px;
+}
+.analysis-compact p {
+  font-size: 12px;
+}
+@keyframes analysis-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(350%);
+  }
+}
+@keyframes analysis-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 .wallet-selection {
   display: flex;
   flex-wrap: wrap;

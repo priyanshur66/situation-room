@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import {
   Activity,
   ArrowUpRight,
@@ -51,22 +51,70 @@ export type DashboardActions = {
   funding: (target: string) => Promise<FundingPlan>;
 };
 
-export function Dashboard({
-  actions,
-  savedSnapshot,
-  unavailableReason,
-}: {
+type DashboardProps = {
   actions?: DashboardActions;
   savedSnapshot?: Snapshot;
   unavailableReason?: string;
-}) {
+};
+
+export function Dashboard(props: DashboardProps) {
+  const { actions } = props;
+  const connection =
+    actions?.ready && actions.connected
+      ? actions.wallet?.toLowerCase()
+      : undefined;
+  return <WalletDashboard key={connection ?? "disconnected"} {...props} />;
+}
+
+function AnalysisLoading({ compact = false }: { compact?: boolean }) {
+  return (
+    <section
+      className={`panel analysis-loading ${compact ? "analysis-compact" : ""}`}
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="analysis-orbit" aria-hidden="true">
+        <Wallet size={28} />
+      </div>
+      <div className="analysis-copy">
+        <h2>
+          {compact ? "Refreshing your wallet…" : "Analyzing your wallet…"}
+        </h2>
+        <p>Reading Base balances and indexed evidence from The Graph.</p>
+        {compact ? (
+          <p>Showing your previous snapshot until fresh data arrives.</p>
+        ) : (
+          <>
+            <div className="analysis-sources" aria-hidden="true">
+              <span>Base balances</span>
+              <span>Market history</span>
+              <span>Exposure analysis</span>
+            </div>
+            <div className="analysis-track" aria-hidden="true" />
+            <p className="disclaimer">
+              Only verified data will appear. No wallet signature is needed.
+            </p>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function WalletDashboard({
+  actions,
+  savedSnapshot,
+  unavailableReason,
+}: DashboardProps) {
+  const canAnalyze = !!(actions?.ready && actions.connected && actions.wallet);
   const [localSnapshot, setSnapshot] = useState<Snapshot | null>(null),
     [section, setSection] = useState("Overview"),
     [days, setDays] = useState(14);
   const [asset, setAsset] = useState<"ETH" | "WETH">("ETH"),
     [amount, setAmount] = useState(""),
     [quote, setQuote] = useState<Quote | null>(null);
-  const [busy, setBusy] = useState(""),
+  const [busy, setBusy] = useState(canAnalyze ? "refresh" : ""),
     [error, setError] = useState(""),
     [receipt, setReceipt] = useState(""),
     [question, setQuestion] = useState(""),
@@ -120,27 +168,52 @@ export function Dashboard({
     data = view ? analyze(view) : undefined,
     history = data?.history.slice(-days) ?? [],
     change = data && history.length ? data.total - history[0].value : 0;
-  async function run(label: string, fn: () => Promise<void>) {
+  async function run(
+    label: string,
+    fn: () => Promise<void>,
+    isCurrent = () => true,
+  ) {
     setBusy(label);
     setError("");
     try {
       await fn();
     } catch (e) {
-      setError(errorMessage(e));
+      if (isCurrent()) setError(errorMessage(e));
     } finally {
-      setBusy("");
+      if (isCurrent()) setBusy("");
     }
   }
-  const refresh = () =>
-    run("refresh", async () => {
-      if (actions) {
-        setSnapshot(await actions.refresh());
-        setQuote(null);
-        setFundingPlan(null);
-        setAnswer("");
-        setReceipt("");
-      }
-    });
+  const refresh = (isCurrent = () => true) =>
+    run(
+      "refresh",
+      async () => {
+        if (actions) {
+          const result = await actions.refresh();
+          if (!isCurrent()) return;
+          setSnapshot(result);
+          setQuote(null);
+          setFundingPlan(null);
+          setAnswer("");
+          setReceipt("");
+        }
+      },
+      isCurrent,
+    );
+  const autoRefresh = useEffectEvent((isCurrent: () => boolean) =>
+    refresh(isCurrent),
+  );
+  useEffect(() => {
+    if (!canAnalyze) return;
+    let current = true;
+    // Defer one tick so Strict Mode's discarded setup never starts a request.
+    const timer = setTimeout(() => {
+      void autoRefresh(() => current);
+    }, 0);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [canAnalyze]);
   const requestQuote = () =>
     run("quote", async () => {
       setReceipt("");
@@ -243,7 +316,7 @@ export function Dashboard({
         <main id="overview">
           {actions?.connected && (
             <div className="wallet-selection">
-              <label htmlFor="active-wallet">Analyze wallet</label>
+              <label htmlFor="active-wallet">Active wallet</label>
               <select
                 id="active-wallet"
                 value={actions.wallet}
@@ -301,13 +374,17 @@ export function Dashboard({
             <button
               className="button"
               disabled={!!busy || !actions?.connected}
-              onClick={refresh}
+              onClick={() => refresh()}
             >
               <RefreshCw
                 size={15}
                 className={busy === "refresh" ? "spin" : ""}
               />
-              Analyze wallet
+              {busy === "refresh"
+                ? "Analyzing…"
+                : error
+                  ? "Retry analysis"
+                  : "Refresh wallet"}
             </button>
           </div>
           {error && (
@@ -318,19 +395,18 @@ export function Dashboard({
               </button>
             </div>
           )}
-          {!view && (
+          {busy === "refresh" && <AnalysisLoading compact={!!view} />}
+          {!view && busy !== "refresh" && (
             <section className="panel empty-wallet" role="status">
               <Wallet size={32} />
               <h2>
                 {unavailableReason
                   ? "Wallet connection unavailable"
-                  : busy === "refresh"
-                    ? "Reading your wallet…"
-                    : !actions?.ready
-                      ? "Loading wallet connection…"
-                      : actions.connected
-                        ? "Your wallet data has not been loaded"
-                        : "Connect your wallet to begin"}
+                  : !actions?.ready
+                    ? "Loading wallet connection…"
+                    : actions.connected
+                      ? "Wallet analysis could not be completed"
+                      : "Connect your wallet to begin"}
               </h2>
               <p>
                 {unavailableReason ??
@@ -343,11 +419,7 @@ export function Dashboard({
                   actions?.connected ? refresh() : actions?.connect()
                 }
               >
-                {busy === "refresh"
-                  ? "Analyzing…"
-                  : actions?.connected
-                    ? "Analyze my wallet"
-                    : "Connect wallet"}
+                {actions?.connected ? "Retry analysis" : "Connect wallet"}
               </button>
               <p className="disclaimer">
                 Supports ETH, WETH and USDC on Base only. Other assets and
