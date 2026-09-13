@@ -169,7 +169,7 @@ svg {
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 7px;
-  margin-bottom: 24px;
+  margin-bottom: 10px;
   color: #c6d2ca;
 }
 .network > .dot {
@@ -195,6 +195,9 @@ svg {
 .sidebar-bottom p {
   padding: 0 12px;
   line-height: 1.9;
+}
+.network-roadmap {
+  font-size: 11px;
 }
 .sidebar-bottom button {
   margin: 25px 8px 20px;
@@ -668,6 +671,40 @@ td b {
   background: linear-gradient(150deg, #203024, #17211c 50%);
   border-color: #45604b;
 }
+.quick-swap {
+  margin: 20px 0;
+  padding: 16px;
+  background: #111c14;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.quick-swap-heading,
+.quick-swap-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.quick-swap-heading {
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.quick-swap-heading h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.quick-swap-heading > span {
+  font-size: 10px;
+  color: var(--muted);
+}
+.quick-swap-controls .amount-field {
+  flex: 1 1 160px;
+  min-width: 0;
+  padding: 10px;
+}
+.quick-swap-controls input {
+  font-size: 18px;
+}
 .exit-panel .panel-heading {
   margin-bottom: 12px;
 }
@@ -781,7 +818,9 @@ td b {
   margin: 9px 0 12px;
 }
 .assistant-panel {
-  padding: 20px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
 }
 .assistant-panel h2 {
   font-size: 14px;

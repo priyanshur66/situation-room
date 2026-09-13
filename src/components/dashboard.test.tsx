@@ -25,6 +25,7 @@ function expectNoPortfolio(html: string) {
   expect(html).not.toContain("9,504");
   expect(html).not.toContain("1,450");
   expect(html).not.toContain("sell-amount");
+  expect(html).not.toContain("Quick swap amount");
   expect(html).not.toContain("Ask the assistant");
   expect(html).not.toContain("card balance");
   expect(html).toContain("NO WALLET DATA");

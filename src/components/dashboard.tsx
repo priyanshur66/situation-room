@@ -270,11 +270,7 @@ function WalletDashboard({
             Base mainnet
             <span className="dot" />
           </div>
-          <p>
-            Know what you hold.
-            <br />
-            Know what you can exit.
-          </p>
+          <p className="network-roadmap">More chains · Coming soon</p>
           <button disabled={!live} onClick={() => setEvidence(true)}>
             Data & methodology ↗
           </button>
@@ -367,9 +363,7 @@ function WalletDashboard({
           )}
           <div className="page-heading">
             <div>
-              <span className="eyebrow">— CLARITY BEFORE YOU ACT</span>
-              <h1>Your positions. A clearer picture.</h1>
-              <p>From displayed value to spendable reality.</p>
+              <h1>Your positions</h1>
             </div>
             <button
               className="button"
@@ -410,7 +404,7 @@ function WalletDashboard({
               </h2>
               <p>
                 {unavailableReason ??
-                  "Balances come from Base; prices and historical context come from The Graph. Nothing is displayed until your wallet has been analyzed."}
+                  "Base balances. Prices and history from The Graph."}
               </p>
               <button
                 className="button primary"
@@ -422,8 +416,7 @@ function WalletDashboard({
                 {actions?.connected ? "Retry analysis" : "Connect wallet"}
               </button>
               <p className="disclaimer">
-                Supports ETH, WETH and USDC on Base only. Other assets and
-                chains are not included.
+                ETH, WETH and USDC on Base only.
               </p>
             </section>
           )}
@@ -485,8 +478,7 @@ function WalletDashboard({
                   <section className="panel">
                     <div className="panel-heading">
                       <div>
-                        <span className="eyebrow">CASH-OUT CONTEXT</span>
-                        <h2>Historical valuation context</h2>
+                        <h2>Historical value</h2>
                       </div>
                       <div className="segmented">
                         {[7, 14].map((d) => (
@@ -610,8 +602,7 @@ function WalletDashboard({
                   <section className="panel" id="exposure">
                     <div className="panel-heading">
                       <div>
-                        <span className="eyebrow">FOLLOW THE DEPENDENCIES</span>
-                        <h2>Different assets. Shared exposure.</h2>
+                        <h2>Exposure</h2>
                       </div>
                       <GitBranch size={20} />
                     </div>
@@ -640,6 +631,86 @@ function WalletDashboard({
                         </div>
                       </div>
                     </div>
+                    <form
+                      className="quick-swap"
+                      aria-label="Quick swap"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        if (
+                          busy ||
+                          !Number.isFinite(Number(amount)) ||
+                          Number(amount) <= 0
+                        )
+                          return;
+                        void requestQuote();
+                        setSection("Exit planner");
+                        const planner = document.getElementById("exit");
+                        planner?.focus({ preventScroll: true });
+                        planner?.scrollIntoView({
+                          behavior: window.matchMedia(
+                            "(prefers-reduced-motion: reduce)",
+                          ).matches
+                            ? "instant"
+                            : "smooth",
+                        });
+                      }}
+                    >
+                      <div className="quick-swap-heading">
+                        <h3>Swap to USDC</h3>
+                        <span>Base · Review before approval</span>
+                      </div>
+                      <div className="quick-swap-controls">
+                        <div className="amount-field">
+                          <input
+                            aria-label="Quick swap amount"
+                            inputMode="decimal"
+                            placeholder="Amount"
+                            disabled={!!busy}
+                            value={amount}
+                            onChange={(event) => {
+                              setAmount(event.target.value);
+                              setQuote(null);
+                              setFundingPlan(null);
+                            }}
+                          />
+                          <select
+                            aria-label="Quick swap asset"
+                            disabled={!!busy}
+                            value={asset}
+                            onChange={(event) => {
+                              setAsset(event.target.value as "ETH" | "WETH");
+                              setQuote(null);
+                              setFundingPlan(null);
+                            }}
+                          >
+                            <option>ETH</option>
+                            <option>WETH</option>
+                          </select>
+                        </div>
+                        <button
+                          className="button primary"
+                          disabled={
+                            !!busy ||
+                            !Number.isFinite(Number(amount)) ||
+                            Number(amount) <= 0
+                          }
+                        >
+                          {busy === "quote" ? (
+                            <LoaderCircle size={16} className="spin" />
+                          ) : (
+                            <ArrowUpRight size={16} />
+                          )}
+                          Get quote
+                        </button>
+                      </div>
+                      <div className="balance-label">
+                        Available{" "}
+                        {view.holdings.find(
+                          (holding) => holding.symbol === asset,
+                        )?.units ?? "Unavailable"}{" "}
+                        {asset}
+                      </div>
+                    </form>
                     <div className="risk-list">
                       {data.signals.map((s) => (
                         <div className="risk-row" key={s.id}>
@@ -711,22 +782,20 @@ function WalletDashboard({
                   </section>
                 </div>
                 <div className="right-column">
-                  <section className="panel exit-panel" id="exit">
+                  <section
+                    className="panel exit-panel"
+                    id="exit"
+                    tabIndex={-1}
+                    aria-label="Exit planner"
+                  >
                     <div className="panel-heading">
                       <div>
-                        <span className="eyebrow green">
-                          FROM VALUE TO USDC
-                        </span>
-                        <h2>Plan your exit</h2>
+                        <h2>Exit planner</h2>
                       </div>
                       <span className="round-icon">
                         <ArrowUpRight size={21} />
                       </span>
                     </div>
-                    <p className="panel-description">
-                      Compare a fresh quote against the value you see. You stay
-                      in control.
-                    </p>
                     <label className="field-label" htmlFor="sell-amount">
                       You sell
                     </label>
@@ -826,7 +895,7 @@ function WalletDashboard({
                       ) : (
                         <GitBranch size={17} />
                       )}{" "}
-                      Find my best supported route
+                      Get quote
                     </button>
                     {quote && (
                       <div className="quote-result">
@@ -876,70 +945,69 @@ function WalletDashboard({
                         your approval.
                       </span>
                     </div>
-                  </section>
-                  <section className="panel assistant-panel" id="assistant">
-                    <div className="panel-heading">
-                      <h2>
-                        <span className="assistant-mark">✳</span>Your financial
-                        copilot
-                      </h2>
-                      <span className="badge">READ ONLY</span>
-                    </div>
-                    <p className="panel-description">
-                      Ask what the evidence means. Get a clearer next step, not
-                      a prediction.
-                    </p>
-                    <div className="prompt-chips">
-                      {[
-                        "Where is my biggest exposure?",
-                        "What would an exit change?",
-                      ].map((q) => (
-                        <button key={q} onClick={() => setQuestion(q)}>
-                          {q}
-                          <ArrowUpRight size={12} />
-                        </button>
-                      ))}
-                    </div>
-                    {answer && (
-                      <div className="assistant-answer" role="status">
-                        {answer}
-                      </div>
-                    )}
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        run("assistant", async () => {
-                          if (actions) setAnswer(await actions.ask(question));
-                        });
-                      }}
+                    <section
+                      className="assistant-panel"
+                      id="assistant"
+                      aria-label="Exit assistant"
                     >
-                      <input
-                        aria-label="Ask the assistant"
-                        placeholder="Ask about your situation…"
-                        value={question}
-                        onChange={(e) => setQuestion(e.target.value)}
-                        maxLength={1000}
-                      />
-                      <button
-                        aria-label="Send question"
-                        disabled={!!busy || !question.trim()}
+                      <div className="panel-heading">
+                        <h2>
+                          <span className="assistant-mark">✳</span>Exit
+                          assistant
+                        </h2>
+                        <span className="badge">READ ONLY</span>
+                      </div>
+                      <div className="prompt-chips">
+                        {[
+                          "Where is my biggest exposure?",
+                          "What would an exit change?",
+                        ].map((q) => (
+                          <button key={q} onClick={() => setQuestion(q)}>
+                            {q}
+                            <ArrowUpRight size={12} />
+                          </button>
+                        ))}
+                      </div>
+                      {answer && (
+                        <div className="assistant-answer" role="status">
+                          {answer}
+                        </div>
+                      )}
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          run("assistant", async () => {
+                            if (actions) setAnswer(await actions.ask(question));
+                          });
+                        }}
                       >
-                        {busy === "assistant" ? (
-                          <LoaderCircle size={17} className="spin" />
-                        ) : (
-                          <Send size={17} />
-                        )}
-                      </button>
-                    </form>
-                    <small className="assistant-caption">
-                      Questions and supported balances go to OpenAI; your wallet
-                      address is omitted. AI explanations are not financial
-                      advice.
-                    </small>
+                        <input
+                          aria-label="Ask the assistant"
+                          placeholder="Ask about your exposure or exit…"
+                          value={question}
+                          onChange={(e) => setQuestion(e.target.value)}
+                          maxLength={1000}
+                        />
+                        <button
+                          aria-label="Send question"
+                          disabled={!!busy || !question.trim()}
+                        >
+                          {busy === "assistant" ? (
+                            <LoaderCircle size={17} className="spin" />
+                          ) : (
+                            <Send size={17} />
+                          )}
+                        </button>
+                      </form>
+                      <small className="assistant-caption">
+                        Questions and supported balances go to OpenAI; your
+                        wallet address is omitted. AI explanations are not
+                        financial advice.
+                      </small>
+                    </section>
                   </section>
                   <section className="panel funding-panel">
-                    <span className="eyebrow">FUND A SPENDING BALANCE</span>
-                    <h2>Start with a USDC target.</h2>
+                    <h2>USDC target</h2>
                     <p className="panel-description">
                       Use existing stables before selling a position. Funds stay
                       in your wallet.
