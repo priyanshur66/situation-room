@@ -41,6 +41,7 @@ import {
 } from "../lib/model";
 import { errorMessage } from "../lib/errors";
 import { StreamPanel } from "./stream-panel";
+import { PortfolioDiscoveryPanel } from "./portfolio-discovery";
 export type DashboardActions = {
   connected: boolean;
   ready: boolean;
@@ -439,7 +440,7 @@ function WalletDashboard({
               <section className="stats-grid" aria-label="Portfolio summary">
                 {[
                   {
-                    label: "Supported portfolio value",
+                    label: "ETH / WETH / USDC value",
                     value: money(data.total),
                     note: `${view.holdings.filter((h) => Number(h.units) > 0).length} held assets · Base only`,
                     icon: Wallet,
@@ -487,6 +488,7 @@ function WalletDashboard({
                   </div>
                 ))}
               </section>
+              <PortfolioDiscoveryPanel snapshot={view} />
               <div className="content-grid">
                 <div className="left-column">
                   <section className="panel">
