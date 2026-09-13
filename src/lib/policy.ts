@@ -116,7 +116,7 @@ export function policyMessage(
   expiresAt: number,
   policy: LiquidationPolicy,
 ) {
-  return `Situation Room liquidation preferences\nChain: Base (8453)\nWallet: ${wallet.toLowerCase()}\nNonce: ${nonce}\nExpires: ${new Date(expiresAt).toISOString()}\nPolicy: ${JSON.stringify(validatePolicy(policy))}\nThis signature saves preferences only. It does not grant spending permission. Payments require separate authorization.`;
+  return `Liquid Pay liquidation preferences\nChain: Base (8453)\nWallet: ${wallet.toLowerCase()}\nNonce: ${nonce}\nExpires: ${new Date(expiresAt).toISOString()}\nPolicy: ${JSON.stringify(validatePolicy(policy))}\nThis signature saves preferences only. It does not grant spending permission. Payments require separate authorization.`;
 }
 
 export type PaymentTransaction = {

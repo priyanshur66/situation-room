@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Situation Room — Know your exit",
+  title: "Liquid Pay — Know your exit",
   description:
     "Wallet exposure, indexed evidence, and a clearer path to spendable USDC.",
 };

@@ -1,5 +1,5 @@
 {
-  "name": "situation-room",
+  "name": "liquid-pay",
   "version": "0.1.0",
   "overrides": {
     "ws@>=8.0.0 <8.21.0": "8.21.0",

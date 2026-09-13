@@ -259,9 +259,9 @@ function WalletDashboard({
             <Command size={22} />
           </span>
           <span>
-            Situation
+            Liquid
             <br />
-            <b>Room</b>
+            <b>Pay</b>
           </span>
         </Link>
         <div className="workspace-label">YOUR COMMAND CENTER</div>
@@ -302,7 +302,7 @@ function WalletDashboard({
         <header className="topbar">
           <div className="breadcrumb">
             Workspace <ChevronRight size={14} />
-            <span>Situation overview</span>
+            <span>Liquid Pay overview</span>
           </div>
           <div className="topbar-actions">
             {paymentControl}
