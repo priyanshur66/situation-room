@@ -141,6 +141,11 @@ export type PaymentPreview = {
   }[];
   excluded: string[];
   gasBudgetUsd: number;
+  comparison?: {
+    assets: string[];
+    estimatedCostUsd: number;
+    gasBudgetUsd: number;
+  }[];
   indexedBlock: number;
   expiresAt: number;
 };

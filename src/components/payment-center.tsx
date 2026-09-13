@@ -602,6 +602,24 @@ export function PaymentCenter({
                         <strong>{money(plan.gasBudgetUsd)}</strong>
                       </span>
                     </div>
+                    {!!plan.comparison?.length && (
+                      <details>
+                        <summary>Why this liquidation sequence?</summary>
+                        <p className="disclaimer">
+                          Lowest estimated swap loss plus gas among the feasible
+                          supported sequences. The final transfer gas is
+                          reserved separately. This is not a market-wide
+                          best-price guarantee.
+                        </p>
+                        {plan.comparison.map((option, i) => (
+                          <p key={i}>
+                            {i === 0 ? "Selected: " : "Alternative: "}
+                            {option.assets.join(" → ") || "Use existing USDC"} ·
+                            estimated cost {money(option.estimatedCostUsd)}
+                          </p>
+                        ))}
+                      </details>
+                    )}
                     <ol>
                       {plan.transactions.map((t, i) => (
                         <li key={i}>

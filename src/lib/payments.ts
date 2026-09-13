@@ -10,6 +10,7 @@ import {
 } from "viem";
 import { contracts, quoteExit, readHoldings, rpc, routerAbi } from "./chain";
 import { parseAmount, type Snapshot } from "./model";
+import { chooseFunding, type FundingCandidate } from "./liquidation-planner";
 import {
   liquidationBlock,
   type LiquidationPolicy,
@@ -22,6 +23,7 @@ export async function previewPayment(
   amount: string,
   policy: LiquidationPolicy,
   delegated = false,
+  client = rpc(),
 ): Promise<PaymentPreview> {
   const recipient = getAddress(recipientInput);
   if (
@@ -39,19 +41,17 @@ export async function previewPayment(
     throw new Error("Amount exceeds your approved per-payment limit.");
   if (policy.unresolved.length)
     throw new Error("Resolve your preference instructions first.");
-  const client = rpc(),
-    balances = await readHoldings(
-      snapshot.wallet,
-      snapshot.pools[0].price,
-      client,
-    );
+  const balances = await readHoldings(
+    snapshot.wallet,
+    snapshot.pools[0].price,
+    client,
+  );
   const usdc = balances.holdings.find((h) => h.symbol === "USDC")!.units;
   const blockedUsdc =
     policy.protectedAssets.includes("USDC") ||
     policy.protectedAssets.includes(contracts.usdc.toUpperCase());
   const available = blockedUsdc ? 0n : parseUnits(usdc, 6);
-  let shortfall = desired > available ? desired - available : 0n;
-  const initialShortfall = shortfall;
+  const shortfall = desired > available ? desired - available : 0n;
   const result: PaymentPreview = {
     recipient,
     amount,
@@ -68,14 +68,9 @@ export async function previewPayment(
     result.excluded.push(
       "Existing USDC is protected; only newly liquidated USDC may fund this payment.",
     );
-  const candidates = balances.holdings.filter(
-    (h) => h.symbol !== "USDC" && Number(h.units) > 0,
-  );
-  // Prefer wrapped ETH to preserve the native gas reserve. Unknown PnL never becomes an assumed gain.
-  candidates.sort((a, b) =>
-    a.symbol === "WETH" ? -1 : b.symbol === "WETH" ? 1 : 0,
-  );
-  for (const h of candidates) {
+  const candidates: FundingCandidate[] = [];
+  for (const h of balances.holdings) {
+    if (h.symbol === "USDC" || Number(h.units) <= 0) continue;
     const block = liquidationBlock(
       policy,
       h.symbol,
@@ -86,7 +81,6 @@ export async function previewPayment(
       result.excluded.push(block);
       continue;
     }
-    if (!shortfall) continue;
     const units = parseAmount(h.units, 18);
     const gasReserve = h.symbol === "ETH" ? 100000000000000n : 0n;
     const spendable = units > gasReserve ? units - gasReserve : 0n;
@@ -94,94 +88,57 @@ export async function previewPayment(
       result.excluded.push(`${h.symbol}: reserved for gas.`);
       continue;
     }
-    // A bounded quote search adjusts the indexed estimate using executable output, not an invented price.
-    let input = BigInt(
-      Math.ceil(
-        (Number(formatUnits(shortfall, 6)) / snapshot.pools[0].price) *
-          1.01 *
-          1e18,
-      ),
-    );
-    if (input > spendable) input = spendable;
-    try {
-      let q = await quoteExit(
-        snapshot.wallet,
-        h.symbol as "ETH" | "WETH",
-        formatUnits(input, 18),
-        snapshot,
-        client,
-        300000,
-      );
-      for (
-        let attempt = 0;
-        attempt < 2 &&
-        parseAmount(q.minimumOut, 6) < shortfall &&
-        input < spendable;
-        attempt++
-      ) {
-        input =
-          (input * shortfall) / parseAmount(q.minimumOut, 6) +
-          input / 1000n +
-          1n;
-        if (input > spendable) input = spendable;
-        q = await quoteExit(
-          snapshot.wallet,
-          h.symbol as "ETH" | "WETH",
-          formatUnits(input, 18),
-          snapshot,
-          client,
-          300000,
-        );
-      }
-      const output = parseAmount(q.minimumOut, 6);
-      result.transactions.push(
-        ...q.transactions.map((tx, i) => ({
-          ...tx,
-          kind:
-            i === q.transactions.length - 1
-              ? ("swap" as const)
-              : ("approval" as const),
-          expiresAt: q.expiresAt,
-        })),
-      );
-      result.liquidations.push({
-        symbol: h.symbol,
-        amount: q.amountIn,
-        minimumUsdc: q.minimumOut,
-        venue: "Uniswap V3",
-      });
-      result.gasBudgetUsd += q.gasUsd;
-      result.expiresAt = Math.min(result.expiresAt, q.expiresAt);
-      shortfall = shortfall > output ? shortfall - output : 0n;
-    } catch {
-      result.excluded.push(
-        `${h.symbol}: no currently executable quote within balance and gas limits.`,
-      );
-    }
+    candidates.push({ symbol: h.symbol, spendable });
   }
-  if (shortfall)
-    throw new Error(
-      `Unable to cover ${formatUnits(initialShortfall, 6)} USDC under this policy. ${result.excluded.join(" ")}`,
-    );
   const [native, fees] = await Promise.all([
     client.getBalance({ address: getAddress(snapshot.wallet) }),
     client.estimateFeesPerGas(),
   ]);
   const reserve =
     100000n * (fees.maxFeePerGas ?? 1000000000n) * 2n + 10000000000000n;
-  const nativeInput = result.transactions.reduce(
-    (sum, t) => sum + BigInt(t.value),
-    0n,
-  );
-  const swapReserve = BigInt(
-    Math.ceil((result.gasBudgetUsd / snapshot.pools[0].price) * 1e18),
-  );
-  if (native < nativeInput + swapReserve + reserve)
-    throw new Error(
-      "Insufficient ETH reserved for all swaps and the final payment.",
+  let funding: Awaited<ReturnType<typeof chooseFunding>>;
+  try {
+    funding = await chooseFunding(
+      candidates,
+      shortfall,
+      snapshot.pools[0].price,
+      native,
+      reserve,
+      (asset, input) =>
+        quoteExit(snapshot.wallet, asset, input, snapshot, client, 300000),
     );
-  result.gasBudgetUsd +=
+  } catch (error) {
+    throw new Error(
+      `${error instanceof Error ? error.message : "Unable to fund payment."} ${result.excluded.join(" ")}`,
+    );
+  }
+  for (const q of funding.selected.quotes) {
+    result.transactions.push(
+      ...q.transactions.map((tx, i) => ({
+        ...tx,
+        kind:
+          i === q.transactions.length - 1
+            ? ("swap" as const)
+            : ("approval" as const),
+        expiresAt: q.expiresAt,
+      })),
+    );
+    result.liquidations.push({
+      symbol: q.asset,
+      amount: q.amountIn,
+      minimumUsdc: q.minimumOut,
+      venue: "Uniswap V3",
+    });
+    result.expiresAt = Math.min(result.expiresAt, q.expiresAt);
+  }
+  result.gasBudgetUsd =
+    funding.selected.gasBudgetUsd +
     Number(formatUnits(reserve, 18)) * snapshot.pools[0].price;
+  result.comparison = funding.alternatives.map((option) => ({
+    assets: option.quotes.map((q) => q.asset),
+    estimatedCostUsd: option.estimatedCostUsd,
+    gasBudgetUsd: option.gasBudgetUsd,
+  }));
   result.transactions.push({
     to: contracts.usdc,
     data: encodeFunctionData({
