@@ -60,6 +60,7 @@ export type DashboardActions = {
 
 type DashboardProps = {
   paymentControl?: ReactNode;
+  investigation?: (snapshot: Snapshot) => ReactNode;
   actions?: DashboardActions;
   savedSnapshot?: Snapshot;
   unavailableReason?: string;
@@ -112,6 +113,7 @@ function AnalysisLoading({ compact = false }: { compact?: boolean }) {
 
 function WalletDashboard({
   paymentControl,
+  investigation,
   actions,
   savedSnapshot,
   unavailableReason,
@@ -430,6 +432,7 @@ function WalletDashboard({
           )}
           {view && data && (
             <>
+              {section === "Overview" && investigation?.(view)}
               <section className="stats-grid" aria-label="Portfolio summary">
                 {[
                   {

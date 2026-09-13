@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as dashboardState from "../dashboardState.js";
+import type * as dashboards from "../dashboards.js";
 import type * as delegation from "../delegation.js";
 import type * as paymentState from "../paymentState.js";
 import type * as payments from "../payments.js";
@@ -21,6 +23,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  dashboardState: typeof dashboardState;
+  dashboards: typeof dashboards;
   delegation: typeof delegation;
   paymentState: typeof paymentState;
   payments: typeof payments;

@@ -21,6 +21,7 @@ import type { Id } from "../../convex/_generated/dataModel";
 import type { Quote, Snapshot } from "@/lib/model";
 import { Dashboard } from "./dashboard";
 import { PaymentCenter } from "./payment-center";
+import { Investigation } from "./investigation";
 
 const client = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 function usePrivyAuth() {
@@ -176,6 +177,17 @@ function ConnectedRoom() {
   }
   return (
     <Dashboard
+      investigation={
+        active
+          ? (snapshot) => (
+              <Investigation
+                key={address}
+                wallet={address!}
+                snapshot={snapshot}
+              />
+            )
+          : undefined
+      }
       paymentControl={
         active && wallet ? (
           <PaymentCenter

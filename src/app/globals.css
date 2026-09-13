@@ -1623,6 +1623,58 @@ footer > span {
     transform: none;
   }
 }
+.investigation {
+  margin-bottom: 24px;
+}
+.investigation-builder {
+  display: grid;
+  gap: 18px;
+}
+.investigation-builder form,
+.investigation-builder label {
+  display: grid;
+  gap: 10px;
+}
+.investigation-input {
+  display: flex;
+  gap: 12px;
+}
+.investigation-input input {
+  flex: 1;
+  min-width: 0;
+}
+.investigation-panels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 18px;
+}
+.investigation-panels h3 {
+  margin-bottom: 18px;
+}
+.investigation-chart {
+  height: 240px;
+}
+.exposure-meter {
+  height: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #32473c;
+  margin: 20px 0;
+}
+.exposure-meter span {
+  display: block;
+  height: 100%;
+  background: #b5ebc8;
+}
+@media (max-width: 900px) {
+  .investigation-panels {
+    grid-template-columns: 1fr;
+  }
+  .investigation-input {
+    flex-direction: column;
+  }
+}
 @media (max-width: 600px) {
   .payment-backdrop {
     padding: 10px;
