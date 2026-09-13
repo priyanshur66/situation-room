@@ -5,6 +5,7 @@ import {
   query,
 } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
+import { mayCancelSwap, mayIssueSwap } from "../src/lib/swap-recovery";
 export const rateLimit = internalMutation({
   args: { owner: v.string(), bucket: v.string() },
   handler: async (ctx, { owner, bucket }) => {
@@ -82,6 +83,7 @@ export const createPlan = internalMutation({
       status: "quoted",
       step: 0,
       hashes: [],
+      issued: false,
       createdAt: Date.now(),
     }),
 });
@@ -146,6 +148,51 @@ export const submitted = mutation({
     await ctx.db.patch(row._id, { pendingHash: a.hash });
   },
 });
+export const activeSwap = query({
+  args: { wallet: v.string() },
+  handler: async (ctx, a) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) return null;
+    const rows = await ctx.db
+      .query("plans")
+      .withIndex("by_owner", (q) => q.eq("owner", user.subject))
+      .order("desc")
+      .collect();
+    return (
+      rows.find(
+        (r) => r.wallet === a.wallet.toLowerCase() && r.status === "executing",
+      ) ?? null
+    );
+  },
+});
+export const issueStep = internalMutation({
+  args: {
+    id: v.id("plans"),
+    owner: v.string(),
+    index: v.number(),
+    nonce: v.number(),
+  },
+  handler: async (ctx, a) => {
+    const row = await ctx.db.get(a.id);
+    if (!row || row.owner !== a.owner || !mayIssueSwap(row, a.index))
+      throw new ConvexError(
+        "This swap step is already issued or no longer ready.",
+      );
+    await ctx.db.patch(a.id, { issued: true, nonce: a.nonce });
+  },
+});
+export const cancelSwap = mutation({
+  args: { id: v.id("plans") },
+  handler: async (ctx, a) => {
+    const user = await ctx.auth.getUserIdentity(),
+      row = await ctx.db.get(a.id);
+    if (!user || !row || row.owner !== user.subject || !mayCancelSwap(row))
+      throw new ConvexError(
+        "An issued or unknown transaction must be recovered before cancelling.",
+      );
+    await ctx.db.patch(a.id, { status: "cancelled" });
+  },
+});
 export const pending = query({
   args: { wallet: v.string() },
   handler: async (ctx, a) => {
@@ -173,6 +220,7 @@ export const recordStep = internalMutation({
     index: v.number(),
     hash: v.string(),
     complete: v.boolean(),
+    reverted: v.optional(v.boolean()),
   },
   handler: async (ctx, a) => {
     const row = await ctx.db.get(a.id);
@@ -185,7 +233,9 @@ export const recordStep = internalMutation({
       step: row.step + 1,
       hashes: [...row.hashes, a.hash],
       pendingHash: undefined,
-      status: a.complete ? "confirmed" : "executing",
+      issued: false,
+      nonce: undefined,
+      status: a.reverted ? "cancelled" : a.complete ? "confirmed" : "executing",
     });
   },
 });

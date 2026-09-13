@@ -59,6 +59,7 @@ export type DashboardActions = {
 };
 
 type DashboardProps = {
+  swapRecovery?: ReactNode;
   paymentControl?: ReactNode;
   investigation?: (snapshot: Snapshot) => ReactNode;
   actions?: DashboardActions;
@@ -112,6 +113,7 @@ function AnalysisLoading({ compact = false }: { compact?: boolean }) {
 }
 
 function WalletDashboard({
+  swapRecovery,
   paymentControl,
   investigation,
   actions,
@@ -346,7 +348,8 @@ function WalletDashboard({
               <span>Base ETH / WETH / USDC only</span>
             </div>
           )}
-          {actions?.pendingHash && (
+          {swapRecovery}
+          {!swapRecovery && actions?.pendingHash && (
             <div className="status-banner" role="status">
               <span>
                 Transaction submitted. Verify its receipt before sending again.

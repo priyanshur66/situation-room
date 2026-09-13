@@ -201,8 +201,15 @@ export const funding = action({
   },
 });
 export const prepareStep = action({
-  args: { id: v.id("plans"), index: v.number() },
-  handler: async (ctx, a): Promise<Quote["transactions"][number]> => {
+  args: {
+    id: v.id("plans"),
+    index: v.number(),
+    retry: v.optional(v.boolean()),
+  },
+  handler: async (
+    ctx,
+    a,
+  ): Promise<Quote["transactions"][number] & { nonce: number }> => {
     const subject = await owner(ctx, "execution"),
       plan = await ctx.runQuery(internal.state.plan, {
         id: a.id,
@@ -212,7 +219,9 @@ export const prepareStep = action({
     if (
       plan.status !== "executing" ||
       plan.step !== a.index ||
-      plan.pendingHash
+      plan.pendingHash ||
+      plan.issued === undefined ||
+      (plan.issued && !a.retry)
     )
       throw new ConvexError(
         "Invalid execution step. This plan may already have been submitted.",
@@ -222,13 +231,39 @@ export const prepareStep = action({
       throw new ConvexError(
         "Quote expired. Request a fresh quote; any completed approval remains onchain.",
       );
+    let tx: Quote["transactions"][number];
     try {
-      return await simulateStep(plan.wallet, quote, a.index);
+      tx = await simulateStep(plan.wallet, quote, a.index);
     } catch {
       throw new ConvexError(
         "Preflight simulation failed. Do not submit this transaction. Refresh the quote.",
       );
     }
+    const client = rpc();
+    const nonce = plan.issued
+      ? plan.nonce!
+      : await client.getTransactionCount({
+          address: getAddress(plan.wallet),
+          blockTag: "pending",
+        });
+    if (
+      plan.issued &&
+      (await client.getTransactionCount({
+        address: getAddress(plan.wallet),
+        blockTag: "latest",
+      })) > nonce
+    )
+      throw new ConvexError(
+        "The reserved nonce was mined. Recover its transaction hash instead of retrying.",
+      );
+    if (!plan.issued)
+      await ctx.runMutation(internal.state.issueStep, {
+        id: a.id,
+        owner: subject,
+        index: a.index,
+        nonce,
+      });
+    return { ...tx, nonce };
   },
 });
 export const confirmStep = action({
@@ -236,7 +271,12 @@ export const confirmStep = action({
   handler: async (
     ctx,
     a,
-  ): Promise<{ confirmed: boolean; complete: boolean; hash: string }> => {
+  ): Promise<{
+    confirmed: boolean;
+    complete: boolean;
+    hash: string;
+    reverted?: boolean;
+  }> => {
     const subject = await owner(ctx, "execution"),
       plan = await ctx.runQuery(internal.state.plan, {
         id: a.id,
@@ -248,6 +288,7 @@ export const confirmStep = action({
       return {
         confirmed: true,
         complete: plan.status === "confirmed",
+        reverted: plan.status === "cancelled",
         hash: a.hash,
       };
     const quote = JSON.parse(plan.payload) as Quote,
@@ -264,15 +305,22 @@ export const confirmStep = action({
       }),
     ]);
     if (
-      receipt.status !== "success" ||
       tx.from.toLowerCase() !== plan.wallet ||
       tx.to?.toLowerCase() !== expected.to.toLowerCase() ||
       tx.input !== expected.data ||
-      tx.value !== BigInt(expected.value)
+      tx.value !== BigInt(expected.value) ||
+      (plan.nonce !== undefined && tx.nonce !== plan.nonce)
     )
-      throw new ConvexError(
-        "Transaction does not match the approved plan or reverted.",
-      );
+      throw new ConvexError("Transaction does not match the approved plan.");
+    if (receipt.status === "reverted") {
+      await ctx.runMutation(internal.state.recordStep, {
+        ...a,
+        owner: subject,
+        complete: false,
+        reverted: true,
+      });
+      return { confirmed: true, complete: false, reverted: true, hash: a.hash };
+    }
     const complete = a.index === quote.transactions.length - 1;
     if (complete) {
       const events = parseEventLogs({

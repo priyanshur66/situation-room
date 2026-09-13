@@ -1692,3 +1692,8 @@ footer > span {
     animation: none;
   }
 }
+.swap-recovery { margin-bottom: 1.5rem; padding: 1.25rem; overflow-wrap: anywhere; }
+.swap-recovery p { margin: .75rem 0; }
+.swap-recovery label { display: grid; gap: .5rem; max-width: 44rem; }
+.swap-recovery input { width: 100%; min-width: 0; }
+.recovery-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1rem; }
