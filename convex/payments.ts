@@ -1,7 +1,7 @@
 "use node";
 import { randomUUID } from "node:crypto";
 import OpenAI from "openai";
-import { action } from "./_generated/server";
+import { action, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { ConvexError, v } from "convex/values";
@@ -154,140 +154,153 @@ export const prepare = action({
     retry: v.optional(v.boolean()),
   },
   handler: async (ctx, a): Promise<PaymentTransaction & { nonce: number }> => {
-    const subject = await owner(ctx, "payment"),
-      row = await ctx.runQuery(internal.paymentState.payment, {
-        id: a.id,
-        owner: subject,
-      });
-    await verifyWallet(subject, row.wallet);
-    const plan = JSON.parse(row.payload) as PaymentPreview,
-      tx = plan.transactions[a.step];
-    if (
-      !tx ||
-      row.status !== "active" ||
-      row.step !== a.step ||
-      (row.issued && (!a.retry || row.pendingHash)) ||
-      tx.expiresAt < Date.now()
-    )
-      throw new ConvexError(
-        "Payment step is expired, already issued, or not ready.",
-      );
-    const latest = await ctx.runQuery(internal.paymentState.approved, {
-      owner: subject,
-      wallet: row.wallet,
-    });
-    if (latest?._id !== row.preferenceId)
-      throw new ConvexError(
-        "Preferences changed. Stop and preview a new payment.",
-      );
-    try {
-      await rpc().call({
-        account: getAddress(row.wallet),
-        to: tx.to as Hex,
-        data: tx.data as Hex,
-        value: BigInt(tx.value),
-      });
-    } catch {
-      throw new ConvexError(
-        "This payment step no longer simulates successfully. No transaction was issued.",
-      );
-    }
-    const nonce = row.issued
-      ? row.nonce!
-      : await rpc().getTransactionCount({
-          address: getAddress(row.wallet),
-          blockTag: "pending",
-        });
-    if (
-      row.issued &&
-      (await rpc().getTransactionCount({
-        address: getAddress(row.wallet),
-        blockTag: "latest",
-      })) > nonce
-    )
-      throw new ConvexError(
-        "The reserved nonce was mined. Recover its transaction hash instead of retrying.",
-      );
-    if (!row.issued)
-      await ctx.runMutation(internal.paymentState.issue, {
-        id: a.id,
-        step: a.step,
-        owner: subject,
-        nonce,
-      });
-    return { ...tx, nonce };
+    return preparePayment(ctx, await owner(ctx, "payment"), a);
   },
 });
+
+export async function preparePayment(
+  ctx: ActionCtx,
+  subject: string,
+  a: { id: Id<"payments">; step: number; retry?: boolean },
+  background = false,
+): Promise<PaymentTransaction & { nonce: number }> {
+  const row = await ctx.runQuery(internal.paymentState.payment, {
+    id: a.id,
+    owner: subject,
+  });
+  await verifyWallet(subject, row.wallet);
+  if (row.background && !background)
+    throw new ConvexError("This payment is managed by the background worker.");
+  const plan = JSON.parse(row.payload) as PaymentPreview,
+    tx = plan.transactions[a.step];
+  if (
+    !tx ||
+    row.status !== "active" ||
+    row.step !== a.step ||
+    (row.issued && (!a.retry || row.pendingHash)) ||
+    tx.expiresAt < Date.now()
+  )
+    throw new ConvexError(
+      "Payment step is expired, already issued, or not ready.",
+    );
+  const latest = await ctx.runQuery(internal.paymentState.approved, {
+    owner: subject,
+    wallet: row.wallet,
+  });
+  if (latest?._id !== row.preferenceId)
+    throw new ConvexError(
+      "Preferences changed. Stop and preview a new payment.",
+    );
+  try {
+    await rpc().call({
+      account: getAddress(row.wallet),
+      to: tx.to as Hex,
+      data: tx.data as Hex,
+      value: BigInt(tx.value),
+    });
+  } catch {
+    throw new ConvexError(
+      "This payment step no longer simulates successfully. No transaction was issued.",
+    );
+  }
+  const nonce = row.issued
+    ? row.nonce!
+    : await rpc().getTransactionCount({
+        address: getAddress(row.wallet),
+        blockTag: "pending",
+      });
+  if (
+    row.issued &&
+    (await rpc().getTransactionCount({
+      address: getAddress(row.wallet),
+      blockTag: "latest",
+    })) > nonce
+  )
+    throw new ConvexError(
+      "The reserved nonce was mined. Recover its transaction hash instead of retrying.",
+    );
+  if (!row.issued)
+    await ctx.runMutation(internal.paymentState.issue, {
+      id: a.id,
+      step: a.step,
+      owner: subject,
+      nonce,
+    });
+  return { ...tx, nonce };
+}
 export const confirm = action({
   args: { id: v.id("payments"), step: v.number(), hash: v.string() },
   handler: async (
     ctx,
     a,
   ): Promise<{ complete: boolean; reverted: boolean }> => {
-    const subject = await owner(ctx, "payment"),
-      row = await ctx.runQuery(internal.paymentState.payment, {
-        id: a.id,
-        owner: subject,
-      });
-    if (row.hashes[a.step] === a.hash)
-      return {
-        complete: row.status === "confirmed",
-        reverted: row.status === "cancelled",
-      };
-    if (
-      !/^0x[0-9a-fA-F]{64}$/.test(a.hash) ||
-      row.step !== a.step ||
-      !row.issued
-    )
-      throw new ConvexError("Unexpected payment confirmation.");
-    const plan = JSON.parse(row.payload) as PaymentPreview,
-      expected = plan.transactions[a.step],
-      client = rpc();
-    const [tx, receipt] = await Promise.all([
-      client.getTransaction({ hash: a.hash as Hex }),
-      client.waitForTransactionReceipt({
-        hash: a.hash as Hex,
-        confirmations: 2,
-        timeout: 55000,
-      }),
-    ]);
-    if (
-      tx.nonce !== row.nonce ||
-      tx.from.toLowerCase() !== row.wallet ||
-      tx.to?.toLowerCase() !== expected.to.toLowerCase() ||
-      tx.input.toLowerCase() !== expected.data.toLowerCase() ||
-      tx.value !== BigInt(expected.value)
-    )
-      throw new ConvexError("Transaction does not match this payment step.");
-    const reverted = receipt.status !== "success";
-    if (!reverted && expected.kind === "payment") {
-      const transfers = parseEventLogs({
-        abi: erc20Abi,
-        eventName: "Transfer",
-        logs: receipt.logs.filter(
-          (l) => l.address.toLowerCase() === contracts.usdc.toLowerCase(),
-        ),
-      });
-      if (
-        !transfers.some(
-          (t) =>
-            t.args.from.toLowerCase() === row.wallet &&
-            t.args.to.toLowerCase() === plan.recipient.toLowerCase() &&
-            t.args.value === parseAmount(plan.amount, 6),
-        )
-      )
-        throw new ConvexError(
-          "Recipient USDC payment was not found in the receipt.",
-        );
-    }
-    await ctx.runMutation(internal.paymentState.record, {
-      ...a,
-      owner: subject,
-      reverted,
-    });
-    return {
-      complete: !reverted && a.step + 1 === plan.transactions.length,
-      reverted,
-    };
+    return confirmPayment(ctx, await owner(ctx, "payment"), a);
   },
 });
+
+export async function confirmPayment(
+  ctx: ActionCtx,
+  subject: string,
+  a: { id: Id<"payments">; step: number; hash: string },
+): Promise<{ complete: boolean; reverted: boolean }> {
+  const row = await ctx.runQuery(internal.paymentState.payment, {
+    id: a.id,
+    owner: subject,
+  });
+  if (row.hashes[a.step] === a.hash)
+    return {
+      complete: row.status === "confirmed",
+      reverted: row.status === "cancelled",
+    };
+  if (!/^0x[0-9a-fA-F]{64}$/.test(a.hash) || row.step !== a.step || !row.issued)
+    throw new ConvexError("Unexpected payment confirmation.");
+  const plan = JSON.parse(row.payload) as PaymentPreview,
+    expected = plan.transactions[a.step],
+    client = rpc();
+  const [tx, receipt] = await Promise.all([
+    client.getTransaction({ hash: a.hash as Hex }),
+    client.waitForTransactionReceipt({
+      hash: a.hash as Hex,
+      confirmations: 2,
+      timeout: 55000,
+    }),
+  ]);
+  if (
+    tx.nonce !== row.nonce ||
+    tx.from.toLowerCase() !== row.wallet ||
+    tx.to?.toLowerCase() !== expected.to.toLowerCase() ||
+    tx.input.toLowerCase() !== expected.data.toLowerCase() ||
+    tx.value !== BigInt(expected.value)
+  )
+    throw new ConvexError("Transaction does not match this payment step.");
+  const reverted = receipt.status !== "success";
+  if (!reverted && expected.kind === "payment") {
+    const transfers = parseEventLogs({
+      abi: erc20Abi,
+      eventName: "Transfer",
+      logs: receipt.logs.filter(
+        (l) => l.address.toLowerCase() === contracts.usdc.toLowerCase(),
+      ),
+    });
+    if (
+      !transfers.some(
+        (t) =>
+          t.args.from.toLowerCase() === row.wallet &&
+          t.args.to.toLowerCase() === plan.recipient.toLowerCase() &&
+          t.args.value === parseAmount(plan.amount, 6),
+      )
+    )
+      throw new ConvexError(
+        "Recipient USDC payment was not found in the receipt.",
+      );
+  }
+  await ctx.runMutation(internal.paymentState.record, {
+    ...a,
+    owner: subject,
+    reverted,
+  });
+  return {
+    complete: !reverted && a.step + 1 === plan.transactions.length,
+    reverted,
+  };
+}

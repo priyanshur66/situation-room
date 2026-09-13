@@ -12,6 +12,8 @@ import type * as dashboardState from "../dashboardState.js";
 import type * as dashboards from "../dashboards.js";
 import type * as delegation from "../delegation.js";
 import type * as paymentState from "../paymentState.js";
+import type * as paymentWorker from "../paymentWorker.js";
+import type * as paymentWorkerState from "../paymentWorkerState.js";
 import type * as payments from "../payments.js";
 import type * as room from "../room.js";
 import type * as state from "../state.js";
@@ -27,6 +29,8 @@ declare const fullApi: ApiFromModules<{
   dashboards: typeof dashboards;
   delegation: typeof delegation;
   paymentState: typeof paymentState;
+  paymentWorker: typeof paymentWorker;
+  paymentWorkerState: typeof paymentWorkerState;
   payments: typeof payments;
   room: typeof room;
   state: typeof state;

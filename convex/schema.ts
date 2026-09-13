@@ -39,6 +39,20 @@ export default defineSchema({
     pendingHash: v.optional(v.string()),
     delegationPolicyId: v.optional(v.string()),
     nonce: v.optional(v.number()),
+    background: v.optional(v.boolean()),
+    workerGeneration: v.optional(v.number()),
+    workerAttempts: v.optional(v.number()),
+    workerStep: v.optional(v.number()),
+    workerJob: v.optional(v.id("_scheduled_functions")),
+    workerState: v.optional(
+      v.union(
+        v.literal("queued"),
+        v.literal("running"),
+        v.literal("attention"),
+        v.literal("done"),
+      ),
+    ),
+    workerMessage: v.optional(v.string()),
   }).index("by_owner_wallet", ["owner", "wallet"]),
   snapshots: defineTable({
     owner: v.string(),

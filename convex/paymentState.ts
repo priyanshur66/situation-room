@@ -7,6 +7,7 @@ import {
 import { ConvexError, v } from "convex/values";
 import { parseAmount } from "../src/lib/model";
 import { validatePolicy, type PaymentPreview } from "../src/lib/policy";
+import { queuePayment } from "./paymentWorkerState";
 
 export const preferences = query({
   args: { wallet: v.string() },
@@ -159,7 +160,7 @@ export const history = query({
   },
 });
 export const claim = mutation({
-  args: { id: v.id("payments") },
+  args: { id: v.id("payments"), background: v.optional(v.boolean()) },
   handler: async (ctx, a) => {
     const user = await ctx.auth.getUserIdentity(),
       row = await ctx.db.get(a.id);
@@ -167,6 +168,8 @@ export const claim = mutation({
       throw new ConvexError("Payment not found.");
     if (row.status !== "quoted" || row.expiresAt < Date.now())
       throw new ConvexError("Payment already started or quote expired.");
+    if (a.background && !row.delegationPolicyId)
+      throw new ConvexError("Authorize restricted payment execution first.");
     const pref = await ctx.db.get(row.preferenceId);
     if (!pref?.approvedAt)
       throw new ConvexError("Approve your preferences first.");
@@ -214,7 +217,12 @@ export const claim = mutation({
       throw new ConvexError(
         "Your approved payment or daily limit would be exceeded.",
       );
-    await ctx.db.patch(a.id, { status: "active", startedAt: Date.now() });
+    await ctx.db.patch(a.id, {
+      status: "active",
+      startedAt: Date.now(),
+      background: !!a.background,
+    });
+    if (a.background) await queuePayment(ctx, row, 0);
   },
 });
 export const issue = internalMutation({

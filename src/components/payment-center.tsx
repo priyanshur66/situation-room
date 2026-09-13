@@ -51,6 +51,7 @@ export function PaymentCenter({
   const permission = useAction(api.delegation.permission),
     permissionStatus = useAction(api.delegation.status),
     delegatedSend = useAction(api.delegation.sendStep);
+  const resumeBackground = useMutation(api.paymentWorkerState.resume);
   const pref = useQuery(api.paymentState.preferences, {
     wallet: wallet.address,
   });
@@ -69,6 +70,30 @@ export function PaymentCenter({
   const current = pref ? (JSON.parse(pref.payload) as LiquidationPolicy) : null;
   const edit = draft ?? current ?? defaultPolicy;
   const active = history?.find((p) => p.status === "active");
+  const watchedPayments = useRef(new Set<string>());
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  useEffect(() => {
+    for (const payment of history ?? []) {
+      if (payment.background && payment.status === "active")
+        watchedPayments.current.add(payment._id);
+      if (
+        payment.status === "confirmed" &&
+        watchedPayments.current.delete(payment._id)
+      ) {
+        setNotice(
+          `Paid ${payment.amount} USDC. Recipient transfer verified on Base.`,
+        );
+        void refreshRef
+          .current()
+          .catch(() =>
+            setError(
+              "Payment confirmed. Refresh wallet analysis to load the new balances.",
+            ),
+          );
+      }
+    }
+  }, [history]);
   const spent =
     history
       ?.filter(
@@ -154,6 +179,15 @@ export function PaymentCenter({
     useDelegation = false,
   ) {
     await wallet.switchChain(8453);
+    if (useDelegation && !resume) {
+      await claim({ id: p.id, background: true });
+      watchedPayments.current.add(p.id);
+      setPlan(null);
+      setNotice(
+        "Payment started in the background. You can close this dialog; progress and verified receipts are saved.",
+      );
+      return;
+    }
     if (!resume) await claim({ id: p.id });
     for (let step = start; step < p.transactions.length; step++) {
       setBusy(p.transactions[step].label);
@@ -705,13 +739,75 @@ export function PaymentCenter({
                           .transactions[active.step]?.label
                       }
                     </p>
-                    {active.issued ? (
+                    {active.background && (
+                      <div role="status" aria-live="polite">
+                        {active.workerState === "attention" ? (
+                          <>
+                            <p>{active.workerMessage}</p>
+                            {(!active.issued || active.pendingHash) && (
+                              <button
+                                className="button primary"
+                                disabled={!!busy}
+                                onClick={() =>
+                                  run(
+                                    "Resuming background payment…",
+                                    async () => {
+                                      await resumeBackground({
+                                        id: active._id,
+                                      });
+                                    },
+                                  )
+                                }
+                              >
+                                Resume background payment
+                              </button>
+                            )}
+                          </>
+                        ) : (
+                          <p>
+                            <LoaderCircle size={16} className="spin" />{" "}
+                            Processing on the server. You may close this dialog
+                            or return later.
+                          </p>
+                        )}
+                        {!active.issued && (
+                          <button
+                            className="button"
+                            disabled={!!busy}
+                            onClick={() =>
+                              run("Stopping remaining steps…", async () => {
+                                await cancel({ id: active._id });
+                                setNotice(
+                                  "Remaining steps stopped. Completed swaps cannot be undone.",
+                                );
+                              })
+                            }
+                          >
+                            Stop remaining steps
+                          </button>
+                        )}
+                        {active.pendingHash && (
+                          <p>
+                            <a
+                              href={`https://basescan.org/tx/${active.pendingHash}`}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Pending transaction ↗
+                            </a>
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {active.issued &&
+                    (!active.background ||
+                      active.workerState === "attention") ? (
                       <>
                         <p>
                           Check this transaction before continuing. Never resend
                           an unknown transaction.
                         </p>
-                        {!active.pendingHash && (
+                        {!active.pendingHash && !active.background && (
                           <button
                             className="button"
                             disabled={!!busy}
@@ -771,7 +867,7 @@ export function PaymentCenter({
                           Check confirmation
                         </button>
                       </>
-                    ) : (
+                    ) : !active.background ? (
                       <>
                         <button
                           className="button primary"
@@ -809,7 +905,7 @@ export function PaymentCenter({
                           Cancel remaining steps
                         </button>
                       </>
-                    )}
+                    ) : null}
                   </section>
                 )}
                 {!!history?.some((p) => p.status === "confirmed") && (

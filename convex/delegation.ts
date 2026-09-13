@@ -1,7 +1,9 @@
 "use node";
 import { PrivyClient } from "@privy-io/node";
-import { action } from "./_generated/server";
-import { api, internal } from "./_generated/api";
+import { action, type ActionCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import { preparePayment } from "./payments";
 import { ConvexError, v } from "convex/values";
 import { owner, verifyWallet } from "./room";
 import { paymentRules } from "../src/lib/delegation";
@@ -95,62 +97,73 @@ export const status = action({
 export const sendStep = action({
   args: { id: v.id("payments"), step: v.number() },
   handler: async (ctx, a): Promise<{ hash: string }> => {
-    const subject = await owner(ctx, "delegation"),
-      row = await ctx.runQuery(internal.paymentState.payment, {
-        id: a.id,
-        owner: subject,
-      });
-    await verifyWallet(subject, row.wallet);
-    if (
-      row.status !== "active" ||
-      row.step !== a.step ||
-      !row.delegationPolicyId
-    )
-      throw new ConvexError("No active authorized payment step.");
-    if (row.pendingHash) return { hash: row.pendingHash };
-    const privy = client(),
-      embedded = await privy
-        .wallets()
-        .getWalletByAddress({ address: row.wallet });
-    if (
-      !embedded.additional_signers.some(
-        (s) =>
-          s.signer_id === process.env.PRIVY_SIGNER_ID &&
-          s.override_policy_ids?.length === 1 &&
-          s.override_policy_ids[0] === row.delegationPolicyId,
-      )
-    )
-      throw new ConvexError(
-        "Approve this payment's restricted signer permission in your wallet first.",
-      );
-    const tx = await ctx.runAction(api.payments.prepare, {
-      ...a,
-      retry: row.issued,
-    });
-    const sent = await privy
-      .wallets()
-      .ethereum()
-      .sendTransaction(embedded.id, {
-        caip2: "eip155:8453",
-        params: {
-          transaction: {
-            to: tx.to,
-            data: tx.data,
-            value: tx.value,
-            chain_id: 8453,
-            nonce: tx.nonce,
-          },
-        },
-        authorization_context: {
-          authorization_private_keys: [process.env.PRIVY_SIGNER_PRIVATE_KEY!],
-        },
-        idempotency_key: `payment-${row._id}-${a.step}`,
-      });
-    await ctx.runMutation(internal.paymentState.sentByServer, {
-      ...a,
-      owner: subject,
-      hash: sent.hash,
-    });
-    return { hash: sent.hash };
+    return sendDelegated(ctx, await owner(ctx, "delegation"), a);
   },
 });
+
+export async function sendDelegated(
+  ctx: ActionCtx,
+  subject: string,
+  a: { id: Id<"payments">; step: number },
+  background = false,
+): Promise<{ hash: string }> {
+  const row = await ctx.runQuery(internal.paymentState.payment, {
+    id: a.id,
+    owner: subject,
+  });
+  await verifyWallet(subject, row.wallet);
+  if (row.background && !background)
+    throw new ConvexError("This payment is managed by the background worker.");
+  if (row.status !== "active" || row.step !== a.step || !row.delegationPolicyId)
+    throw new ConvexError("No active authorized payment step.");
+  if (row.pendingHash) return { hash: row.pendingHash };
+  const privy = client(),
+    embedded = await privy
+      .wallets()
+      .getWalletByAddress({ address: row.wallet });
+  if (
+    !embedded.additional_signers.some(
+      (s) =>
+        s.signer_id === process.env.PRIVY_SIGNER_ID &&
+        s.override_policy_ids?.length === 1 &&
+        s.override_policy_ids[0] === row.delegationPolicyId,
+    )
+  )
+    throw new ConvexError(
+      "Approve this payment's restricted signer permission in your wallet first.",
+    );
+  const tx = await preparePayment(
+    ctx,
+    subject,
+    {
+      ...a,
+      retry: row.issued,
+    },
+    background,
+  );
+  const sent = await privy
+    .wallets()
+    .ethereum()
+    .sendTransaction(embedded.id, {
+      caip2: "eip155:8453",
+      params: {
+        transaction: {
+          to: tx.to,
+          data: tx.data,
+          value: tx.value,
+          chain_id: 8453,
+          nonce: tx.nonce,
+        },
+      },
+      authorization_context: {
+        authorization_private_keys: [process.env.PRIVY_SIGNER_PRIVATE_KEY!],
+      },
+      idempotency_key: `payment-${row._id}-${a.step}`,
+    });
+  await ctx.runMutation(internal.paymentState.sentByServer, {
+    ...a,
+    owner: subject,
+    hash: sent.hash,
+  });
+  return { hash: sent.hash };
+}
