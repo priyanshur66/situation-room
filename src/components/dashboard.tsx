@@ -36,6 +36,7 @@ import {
   type FundingPlan,
 } from "@/lib/model";
 import { sample } from "@/lib/sample";
+import { errorMessage } from "@/lib/errors";
 export type DashboardActions = {
   connected: boolean;
   ready: boolean;
@@ -126,9 +127,7 @@ export function Dashboard({
     try {
       await fn();
     } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Something went wrong. Please retry.",
-      );
+      setError(errorMessage(e));
     } finally {
       setBusy("");
     }
