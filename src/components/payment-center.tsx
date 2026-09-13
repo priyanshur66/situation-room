@@ -18,6 +18,7 @@ import {
 } from "@/lib/policy";
 import { money, shortAddress } from "@/lib/model";
 import { errorMessage } from "@/lib/errors";
+import { NativeTransferForm } from "./native-transfer";
 
 export function PaymentCenter({
   wallet,
@@ -32,6 +33,7 @@ export function PaymentCenter({
     [draft, setDraft] = useState<LiquidationPolicy | null>(null);
   const [amount, setAmount] = useState(""),
     [recipient, setRecipient] = useState("");
+  const [currency, setCurrency] = useState<"USDC" | "ETH">("USDC");
   const [plan, setPlan] = useState<
     (PaymentPreview & { id: Id<"payments"> }) | null
   >(null);
@@ -72,7 +74,9 @@ export function PaymentCenter({
   const active = history?.find((p) => p.status === "active");
   const watchedPayments = useRef(new Set<string>());
   const refreshRef = useRef(refresh);
-  refreshRef.current = refresh;
+  useEffect(() => {
+    refreshRef.current = refresh;
+  }, [refresh]);
   useEffect(() => {
     for (const payment of history ?? []) {
       if (payment.background && payment.status === "active")
@@ -508,428 +512,470 @@ export function PaymentCenter({
             )}
             {tab === "wallet" && (
               <div className="payment-stack">
-                {!current ? (
-                  <div className="payment-notice">
-                    <p>First, choose what this wallet may liquidate.</p>
-                    <button className="button" onClick={() => setTab("policy")}>
-                      Set liquidation preferences
-                    </button>
-                  </div>
+                <label>
+                  Send currency
+                  <select
+                    value={currency}
+                    disabled={!!busy}
+                    onChange={(e) => {
+                      setCurrency(e.target.value as "USDC" | "ETH");
+                      setError("");
+                      setNotice("");
+                    }}
+                  >
+                    <option value="USDC">USDC · portfolio payment</option>
+                    <option value="ETH">ETH · direct transfer</option>
+                  </select>
+                </label>
+                {currency === "ETH" ? (
+                  <NativeTransferForm
+                    key={wallet.address.toLowerCase()}
+                    wallet={wallet}
+                    refresh={refresh}
+                    blocked={!!active}
+                    onBusy={setBusy}
+                  />
                 ) : (
-                  <div className="payment-capacity">
-                    <ShieldCheck size={18} />
-                    <span>
-                      Approved limit {current.perPaymentUsdc} USDC / payment ·{" "}
-                      {Math.max(0, Number(current.dailyUsdc) - spent).toFixed(
-                        2,
-                      )}{" "}
-                      USDC remaining today
-                      <br />
-                      <small>
-                        {authorizedId
-                          ? "Restricted payment permission approved. Server checks limits and receipts at every step."
-                          : "No delegated spending enabled. Preferences alone do not grant access."}
-                      </small>
-                    </span>
-                  </div>
-                )}
-                <label>
-                  Recipient Ethereum-compatible address on Base
-                  <input
-                    value={recipient}
-                    onChange={(e) => {
-                      setRecipient(e.target.value);
-                      setPlan(null);
-                    }}
-                    placeholder="0x…"
-                    autoComplete="off"
-                  />
-                </label>
-                <label>
-                  Payment amount · USDC
-                  <input
-                    inputMode="decimal"
-                    value={amount}
-                    onChange={(e) => {
-                      setAmount(e.target.value);
-                      setPlan(null);
-                    }}
-                    placeholder="5.00"
-                  />
-                </label>
-                {wallet.walletClientType === "privy" && (
                   <>
-                    <label className="payment-check">
-                      <input
-                        type="checkbox"
-                        checked={delegated}
-                        disabled={!!busy || !!active}
-                        onChange={(e) => {
-                          setDelegated(e.target.checked);
-                          setPlan(null);
-                          setAuthorizedId(null);
-                        }}
-                      />
-                      Authorize Privy to execute this reviewed payment
-                    </label>
-                    <p className="disclaimer">
-                      Optional, time-limited permission for exact swap inputs,
-                      approvals and recipient amount. The server enforces the
-                      payment budget. This is not a recurring spending
-                      allowance; signed calls remain possible until permission
-                      expiry. Revoke after use.
-                    </p>
-                    <button
-                      className="button"
-                      disabled={!!busy}
-                      onClick={() =>
-                        run("Removing additional wallet signers…", async () => {
-                          await removeSigners({ address: wallet.address });
-                          setAuthorizedId(null);
-                          setNotice(
-                            "All additional signers removed from this wallet. Already broadcast transactions cannot be cancelled by revocation.",
-                          );
-                        })
-                      }
-                    >
-                      Revoke all additional wallet signers
-                    </button>
-                  </>
-                )}
-                <button
-                  className="button"
-                  disabled={
-                    !!busy || !current || !!active || !amount || !recipient
-                  }
-                  onClick={() =>
-                    run(
-                      "Reading balances and building liquidation queue…",
-                      async () => {
-                        await refresh();
-                        setPlan(
-                          await preview({
-                            wallet: wallet.address,
-                            recipient,
-                            amount,
-                            delegated,
-                          }),
-                        );
-                      },
-                    )
-                  }
-                >
-                  Preview liquidation & payment
-                </button>
-                {plan && (
-                  <section className="payment-preview">
-                    <h3>Recipient gets {plan.amount} USDC</h3>
-                    <p>{shortAddress(plan.recipient)} · Base</p>
-                    <div className="payment-fields">
-                      <span>
-                        Existing USDC
-                        <br />
-                        <strong>{plan.existingUsdc}</strong>
-                      </span>
-                      <span>
-                        Gas reserve estimate
-                        <br />
-                        <strong>{money(plan.gasBudgetUsd)}</strong>
-                      </span>
-                    </div>
-                    {!!plan.comparison?.length && (
-                      <details>
-                        <summary>Why this liquidation sequence?</summary>
-                        <p className="disclaimer">
-                          Lowest estimated swap loss plus gas among the feasible
-                          supported sequences. The final transfer gas is
-                          reserved separately. This is not a market-wide
-                          best-price guarantee.
-                        </p>
-                        {plan.comparison.map((option, i) => (
-                          <p key={i}>
-                            {i === 0 ? "Selected: " : "Alternative: "}
-                            {option.assets.join(" → ") || "Use existing USDC"} ·
-                            estimated cost {money(option.estimatedCostUsd)}
-                          </p>
-                        ))}
-                      </details>
-                    )}
-                    <ol>
-                      {plan.transactions.map((t, i) => (
-                        <li key={i}>
-                          <span>{i + 1}</span>
-                          {t.label}
-                        </li>
-                      ))}
-                    </ol>
-                    {plan.excluded.map((s) => (
-                      <p key={s} className="disclaimer">
-                        {s}
-                      </p>
-                    ))}
-                    <p className="disclaimer">
-                      Sequential transactions, not atomic. A completed swap
-                      cannot be undone if a later step fails. Excess USDC stays
-                      in your wallet. Quotes expire; no future price is
-                      guaranteed.
-                    </p>
-                    <button
-                      className="button primary"
-                      disabled={!!busy || !!active}
-                      onClick={() =>
-                        run("Starting payment…", async () => {
-                          if (
-                            delegated &&
-                            !(await permissionStatus({ id: plan.id }))
-                              .authorized
-                          )
-                            throw new Error(
-                              "Authorize this payment's restricted permission first.",
-                            );
-                          await execute(plan, 0, false, false, delegated);
-                        })
-                      }
-                    >
-                      Pay {plan.amount} USDC
-                    </button>
-                    {delegated && (
-                      <button
-                        className="button"
-                        disabled={!!busy || !!active}
-                        onClick={() =>
-                          run(
-                            "Review restricted payment permission…",
-                            async () => {
-                              const grant = await permission({ id: plan.id });
-                              await addSigners({
-                                address: wallet.address,
-                                signers: [
-                                  {
-                                    signerId: grant.signerId,
-                                    policyIds: [grant.policyId],
-                                  },
-                                ],
-                              });
-                              const result = await permissionStatus({
-                                id: plan.id,
-                              });
-                              if (!result.authorized)
-                                throw new Error(
-                                  "Privy has not confirmed this restricted permission.",
-                                );
-                              setAuthorizedId(plan.id);
-                              setNotice(
-                                `Permission verified for this ${plan.amount} USDC payment. Expires ${new Date(grant.expiresAt).toLocaleTimeString()}.`,
-                              );
-                            },
-                          )
-                        }
-                      >
-                        Review & authorize payment execution
-                      </button>
-                    )}
-                  </section>
-                )}
-                {active && (
-                  <section className="payment-preview">
-                    <h3>Payment in progress · step {active.step + 1}</h3>
-                    <p>
-                      {
-                        (JSON.parse(active.payload) as PaymentPreview)
-                          .transactions[active.step]?.label
-                      }
-                    </p>
-                    {active.background && (
-                      <div role="status" aria-live="polite">
-                        {active.workerState === "attention" ? (
-                          <>
-                            <p>{active.workerMessage}</p>
-                            {(!active.issued || active.pendingHash) && (
-                              <button
-                                className="button primary"
-                                disabled={!!busy}
-                                onClick={() =>
-                                  run(
-                                    "Resuming background payment…",
-                                    async () => {
-                                      await resumeBackground({
-                                        id: active._id,
-                                      });
-                                    },
-                                  )
-                                }
-                              >
-                                Resume background payment
-                              </button>
-                            )}
-                          </>
-                        ) : (
-                          <p>
-                            <LoaderCircle size={16} className="spin" />{" "}
-                            Processing on the server. You may close this dialog
-                            or return later.
-                          </p>
-                        )}
-                        {!active.issued && (
-                          <button
-                            className="button"
-                            disabled={!!busy}
-                            onClick={() =>
-                              run("Stopping remaining steps…", async () => {
-                                await cancel({ id: active._id });
-                                setNotice(
-                                  "Remaining steps stopped. Completed swaps cannot be undone.",
-                                );
-                              })
-                            }
-                          >
-                            Stop remaining steps
-                          </button>
-                        )}
-                        {active.pendingHash && (
-                          <p>
-                            <a
-                              href={`https://basescan.org/tx/${active.pendingHash}`}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              Pending transaction ↗
-                            </a>
-                          </p>
-                        )}
+                    {!current ? (
+                      <div className="payment-notice">
+                        <p>First, choose what this wallet may liquidate.</p>
+                        <button
+                          className="button"
+                          onClick={() => setTab("policy")}
+                        >
+                          Set liquidation preferences
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="payment-capacity">
+                        <ShieldCheck size={18} />
+                        <span>
+                          Approved limit {current.perPaymentUsdc} USDC / payment
+                          ·{" "}
+                          {Math.max(
+                            0,
+                            Number(current.dailyUsdc) - spent,
+                          ).toFixed(2)}{" "}
+                          USDC remaining today
+                          <br />
+                          <small>
+                            {authorizedId
+                              ? "Restricted payment permission approved. Server checks limits and receipts at every step."
+                              : "No delegated spending enabled. Preferences alone do not grant access."}
+                          </small>
+                        </span>
                       </div>
                     )}
-                    {active.issued &&
-                    (!active.background ||
-                      active.workerState === "attention") ? (
+                    <label>
+                      Recipient Ethereum-compatible address on Base
+                      <input
+                        value={recipient}
+                        onChange={(e) => {
+                          setRecipient(e.target.value);
+                          setPlan(null);
+                        }}
+                        placeholder="0x…"
+                        autoComplete="off"
+                      />
+                    </label>
+                    <label>
+                      Payment amount · USDC
+                      <input
+                        inputMode="decimal"
+                        value={amount}
+                        onChange={(e) => {
+                          setAmount(e.target.value);
+                          setPlan(null);
+                        }}
+                        placeholder="5.00"
+                      />
+                    </label>
+                    {wallet.walletClientType === "privy" && (
                       <>
-                        <p>
-                          Check this transaction before continuing. Never resend
-                          an unknown transaction.
+                        <label className="payment-check">
+                          <input
+                            type="checkbox"
+                            checked={delegated}
+                            disabled={!!busy || !!active}
+                            onChange={(e) => {
+                              setDelegated(e.target.checked);
+                              setPlan(null);
+                              setAuthorizedId(null);
+                            }}
+                          />
+                          Authorize Privy to execute this reviewed payment
+                        </label>
+                        <p className="disclaimer">
+                          Optional, time-limited permission for exact swap
+                          inputs, approvals and recipient amount. The server
+                          enforces the payment budget. This is not a recurring
+                          spending allowance; signed calls remain possible until
+                          permission expiry. Revoke after use.
                         </p>
-                        {!active.pendingHash && !active.background && (
-                          <button
-                            className="button"
-                            disabled={!!busy}
-                            onClick={() =>
-                              run("Retrying the same reserved nonce…", () =>
-                                execute(
-                                  {
-                                    ...JSON.parse(active.payload),
-                                    id: active._id,
-                                  },
-                                  active.step,
-                                  true,
-                                  true,
-                                  !!active.delegationPolicyId,
-                                ),
-                              )
-                            }
-                          >
-                            Retry rejected request · same nonce
-                          </button>
-                        )}
-                        <input
-                          aria-label="Transaction hash to recover"
-                          value={recoveryHash || active.pendingHash || ""}
-                          onChange={(e) => setRecoveryHash(e.target.value)}
-                          placeholder="0x transaction hash from wallet activity"
-                        />
                         <button
                           className="button"
                           disabled={!!busy}
                           onClick={() =>
-                            run("Verifying transaction…", async () => {
-                              const hash =
-                                recoveryHash ||
-                                active.pendingHash ||
-                                localStorage.getItem(
-                                  `payment:${wallet.address.toLowerCase()}:${active._id}:${active.step}`,
-                                ) ||
-                                "";
-                              const r = await confirm({
-                                id: active._id,
-                                step: active.step,
-                                hash,
-                              });
-                              setRecoveryHash("");
-                              setNotice(
-                                r.complete
-                                  ? "Recipient payment verified."
-                                  : r.reverted
-                                    ? "Transaction reverted; payment stopped."
-                                    : "Step confirmed. Continue the remaining steps.",
-                              );
-                              await refresh();
-                            })
-                          }
-                        >
-                          Check confirmation
-                        </button>
-                      </>
-                    ) : !active.background ? (
-                      <>
-                        <button
-                          className="button primary"
-                          disabled={!!busy}
-                          onClick={() =>
-                            run("Continuing payment…", () =>
-                              execute(
-                                {
-                                  ...JSON.parse(active.payload),
-                                  id: active._id,
-                                },
-                                active.step,
-                                true,
-                                false,
-                                !!active.delegationPolicyId,
-                              ),
+                            run(
+                              "Removing additional wallet signers…",
+                              async () => {
+                                await removeSigners({
+                                  address: wallet.address,
+                                });
+                                setAuthorizedId(null);
+                                setNotice(
+                                  "All additional signers removed from this wallet. Already broadcast transactions cannot be cancelled by revocation.",
+                                );
+                              },
                             )
                           }
                         >
-                          Continue payment
+                          Revoke all additional wallet signers
                         </button>
+                      </>
+                    )}
+                    <button
+                      className="button"
+                      disabled={
+                        !!busy || !current || !!active || !amount || !recipient
+                      }
+                      onClick={() =>
+                        run(
+                          "Reading balances and building liquidation queue…",
+                          async () => {
+                            await refresh();
+                            setPlan(
+                              await preview({
+                                wallet: wallet.address,
+                                recipient,
+                                amount,
+                                delegated,
+                              }),
+                            );
+                          },
+                        )
+                      }
+                    >
+                      Preview liquidation & payment
+                    </button>
+                    {plan && (
+                      <section className="payment-preview">
+                        <h3>Recipient gets {plan.amount} USDC</h3>
+                        <p>{shortAddress(plan.recipient)} · Base</p>
+                        <div className="payment-fields">
+                          <span>
+                            Existing USDC
+                            <br />
+                            <strong>{plan.existingUsdc}</strong>
+                          </span>
+                          <span>
+                            Gas reserve estimate
+                            <br />
+                            <strong>{money(plan.gasBudgetUsd)}</strong>
+                          </span>
+                        </div>
+                        {!!plan.comparison?.length && (
+                          <details>
+                            <summary>Why this liquidation sequence?</summary>
+                            <p className="disclaimer">
+                              Lowest estimated swap loss plus gas among the
+                              feasible supported sequences. The final transfer
+                              gas is reserved separately. This is not a
+                              market-wide best-price guarantee.
+                            </p>
+                            {plan.comparison.map((option, i) => (
+                              <p key={i}>
+                                {i === 0 ? "Selected: " : "Alternative: "}
+                                {option.assets.join(" → ") ||
+                                  "Use existing USDC"}{" "}
+                                · estimated cost{" "}
+                                {money(option.estimatedCostUsd)}
+                              </p>
+                            ))}
+                          </details>
+                        )}
+                        <ol>
+                          {plan.transactions.map((t, i) => (
+                            <li key={i}>
+                              <span>{i + 1}</span>
+                              {t.label}
+                            </li>
+                          ))}
+                        </ol>
+                        {plan.excluded.map((s) => (
+                          <p key={s} className="disclaimer">
+                            {s}
+                          </p>
+                        ))}
+                        <p className="disclaimer">
+                          Sequential transactions, not atomic. A completed swap
+                          cannot be undone if a later step fails. Excess USDC
+                          stays in your wallet. Quotes expire; no future price
+                          is guaranteed.
+                        </p>
                         <button
-                          className="button"
-                          disabled={!!busy}
+                          className="button primary"
+                          disabled={!!busy || !!active}
                           onClick={() =>
-                            run("Cancelling remaining steps…", async () => {
-                              await cancel({ id: active._id });
-                              setPlan(null);
-                              setNotice(
-                                "Remaining steps cancelled. Prior completed swaps stay in your wallet.",
-                              );
+                            run("Starting payment…", async () => {
+                              if (
+                                delegated &&
+                                !(await permissionStatus({ id: plan.id }))
+                                  .authorized
+                              )
+                                throw new Error(
+                                  "Authorize this payment's restricted permission first.",
+                                );
+                              await execute(plan, 0, false, false, delegated);
                             })
                           }
                         >
-                          Cancel remaining steps
+                          Pay {plan.amount} USDC
                         </button>
-                      </>
-                    ) : null}
-                  </section>
-                )}
-                {!!history?.some((p) => p.status === "confirmed") && (
-                  <section>
-                    <h3>Verified payments</h3>
-                    {history
-                      .filter((p) => p.status === "confirmed")
-                      .slice(0, 5)
-                      .map((p) => (
-                        <p key={p._id}>
-                          {p.amount} USDC →{" "}
-                          {shortAddress(
-                            (JSON.parse(p.payload) as PaymentPreview).recipient,
-                          )}{" "}
-                          <a
-                            href={`https://basescan.org/tx/${p.hashes.at(-1)}`}
-                            target="_blank"
-                            rel="noreferrer"
+                        {delegated && (
+                          <button
+                            className="button"
+                            disabled={!!busy || !!active}
+                            onClick={() =>
+                              run(
+                                "Review restricted payment permission…",
+                                async () => {
+                                  const grant = await permission({
+                                    id: plan.id,
+                                  });
+                                  await addSigners({
+                                    address: wallet.address,
+                                    signers: [
+                                      {
+                                        signerId: grant.signerId,
+                                        policyIds: [grant.policyId],
+                                      },
+                                    ],
+                                  });
+                                  const result = await permissionStatus({
+                                    id: plan.id,
+                                  });
+                                  if (!result.authorized)
+                                    throw new Error(
+                                      "Privy has not confirmed this restricted permission.",
+                                    );
+                                  setAuthorizedId(plan.id);
+                                  setNotice(
+                                    `Permission verified for this ${plan.amount} USDC payment. Expires ${new Date(grant.expiresAt).toLocaleTimeString()}.`,
+                                  );
+                                },
+                              )
+                            }
                           >
-                            Receipt ↗
-                          </a>
+                            Review & authorize payment execution
+                          </button>
+                        )}
+                      </section>
+                    )}
+                    {active && (
+                      <section className="payment-preview">
+                        <h3>Payment in progress · step {active.step + 1}</h3>
+                        <p>
+                          {
+                            (JSON.parse(active.payload) as PaymentPreview)
+                              .transactions[active.step]?.label
+                          }
                         </p>
-                      ))}
-                  </section>
+                        {active.background && (
+                          <div role="status" aria-live="polite">
+                            {active.workerState === "attention" ? (
+                              <>
+                                <p>{active.workerMessage}</p>
+                                {(!active.issued || active.pendingHash) && (
+                                  <button
+                                    className="button primary"
+                                    disabled={!!busy}
+                                    onClick={() =>
+                                      run(
+                                        "Resuming background payment…",
+                                        async () => {
+                                          await resumeBackground({
+                                            id: active._id,
+                                          });
+                                        },
+                                      )
+                                    }
+                                  >
+                                    Resume background payment
+                                  </button>
+                                )}
+                              </>
+                            ) : (
+                              <p>
+                                <LoaderCircle size={16} className="spin" />{" "}
+                                Processing on the server. You may close this
+                                dialog or return later.
+                              </p>
+                            )}
+                            {!active.issued && (
+                              <button
+                                className="button"
+                                disabled={!!busy}
+                                onClick={() =>
+                                  run("Stopping remaining steps…", async () => {
+                                    await cancel({ id: active._id });
+                                    setNotice(
+                                      "Remaining steps stopped. Completed swaps cannot be undone.",
+                                    );
+                                  })
+                                }
+                              >
+                                Stop remaining steps
+                              </button>
+                            )}
+                            {active.pendingHash && (
+                              <p>
+                                <a
+                                  href={`https://basescan.org/tx/${active.pendingHash}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  Pending transaction ↗
+                                </a>
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        {active.issued &&
+                        (!active.background ||
+                          active.workerState === "attention") ? (
+                          <>
+                            <p>
+                              Check this transaction before continuing. Never
+                              resend an unknown transaction.
+                            </p>
+                            {!active.pendingHash && !active.background && (
+                              <button
+                                className="button"
+                                disabled={!!busy}
+                                onClick={() =>
+                                  run("Retrying the same reserved nonce…", () =>
+                                    execute(
+                                      {
+                                        ...JSON.parse(active.payload),
+                                        id: active._id,
+                                      },
+                                      active.step,
+                                      true,
+                                      true,
+                                      !!active.delegationPolicyId,
+                                    ),
+                                  )
+                                }
+                              >
+                                Retry rejected request · same nonce
+                              </button>
+                            )}
+                            <input
+                              aria-label="Transaction hash to recover"
+                              value={recoveryHash || active.pendingHash || ""}
+                              onChange={(e) => setRecoveryHash(e.target.value)}
+                              placeholder="0x transaction hash from wallet activity"
+                            />
+                            <button
+                              className="button"
+                              disabled={!!busy}
+                              onClick={() =>
+                                run("Verifying transaction…", async () => {
+                                  const hash =
+                                    recoveryHash ||
+                                    active.pendingHash ||
+                                    localStorage.getItem(
+                                      `payment:${wallet.address.toLowerCase()}:${active._id}:${active.step}`,
+                                    ) ||
+                                    "";
+                                  const r = await confirm({
+                                    id: active._id,
+                                    step: active.step,
+                                    hash,
+                                  });
+                                  setRecoveryHash("");
+                                  setNotice(
+                                    r.complete
+                                      ? "Recipient payment verified."
+                                      : r.reverted
+                                        ? "Transaction reverted; payment stopped."
+                                        : "Step confirmed. Continue the remaining steps.",
+                                  );
+                                  await refresh();
+                                })
+                              }
+                            >
+                              Check confirmation
+                            </button>
+                          </>
+                        ) : !active.background ? (
+                          <>
+                            <button
+                              className="button primary"
+                              disabled={!!busy}
+                              onClick={() =>
+                                run("Continuing payment…", () =>
+                                  execute(
+                                    {
+                                      ...JSON.parse(active.payload),
+                                      id: active._id,
+                                    },
+                                    active.step,
+                                    true,
+                                    false,
+                                    !!active.delegationPolicyId,
+                                  ),
+                                )
+                              }
+                            >
+                              Continue payment
+                            </button>
+                            <button
+                              className="button"
+                              disabled={!!busy}
+                              onClick={() =>
+                                run("Cancelling remaining steps…", async () => {
+                                  await cancel({ id: active._id });
+                                  setPlan(null);
+                                  setNotice(
+                                    "Remaining steps cancelled. Prior completed swaps stay in your wallet.",
+                                  );
+                                })
+                              }
+                            >
+                              Cancel remaining steps
+                            </button>
+                          </>
+                        ) : null}
+                      </section>
+                    )}
+                    {!!history?.some((p) => p.status === "confirmed") && (
+                      <section>
+                        <h3>Verified payments</h3>
+                        {history
+                          .filter((p) => p.status === "confirmed")
+                          .slice(0, 5)
+                          .map((p) => (
+                            <p key={p._id}>
+                              {p.amount} USDC →{" "}
+                              {shortAddress(
+                                (JSON.parse(p.payload) as PaymentPreview)
+                                  .recipient,
+                              )}{" "}
+                              <a
+                                href={`https://basescan.org/tx/${p.hashes.at(-1)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                Receipt ↗
+                              </a>
+                            </p>
+                          ))}
+                      </section>
+                    )}
+                  </>
                 )}
               </div>
             )}
