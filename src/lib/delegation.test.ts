@@ -5,7 +5,35 @@ import { contracts, routerAbi } from "./chain";
 import type { PaymentPreview } from "./policy";
 import { PrivyClient } from "@privy-io/node";
 import { tokenContract } from "./execution-assets";
+import { aerodrome, aerodromeAbi } from "./aerodrome-contracts";
 const recipient = "0x0000000000000000000000000000000000000001";
+function aeroSwap(native = false): PaymentPreview["transactions"][number] {
+  const routes = [
+    {
+      from: contracts.weth,
+      to: contracts.usdc,
+      stable: false,
+      factory: aerodrome.factory,
+    },
+  ];
+  return {
+    ...plan().transactions[0],
+    to: aerodrome.router,
+    kind: "swap",
+    value: native ? "1000" : "0",
+    data: native
+      ? encodeFunctionData({
+          abi: aerodromeAbi,
+          functionName: "swapExactETHForTokens",
+          args: [900n, routes, recipient, 1900000000n],
+        })
+      : encodeFunctionData({
+          abi: aerodromeAbi,
+          functionName: "swapExactTokensForTokens",
+          args: [1000n, 900n, routes, recipient, 1900000000n],
+        }),
+  };
+}
 function plan(): PaymentPreview {
   return {
     recipient,
@@ -62,6 +90,22 @@ function tokenSwap(): PaymentPreview["transactions"][number] {
   };
 }
 describe("restricted payment policy compiler", () => {
+  it.each([false, true])(
+    "binds Aerodrome routes to exact calldata and scalar parameters (native=%s)",
+    (native) => {
+      const tx = aeroSwap(native);
+      const rules = paymentRules({ ...plan(), transactions: [tx] });
+      expect(rules[0].conditions).toContainEqual({
+        field_source: "action_request_body",
+        field: "params.transaction.data",
+        operator: "eq",
+        value: tx.data,
+      });
+      expect(
+        rules[0].conditions.some((c) => c.field.endsWith(".amountOutMin")),
+      ).toBe(true);
+    },
+  );
   it("binds multi-hop swaps to the exact path, input, minimum and recipient", () => {
     const p = plan();
     p.transactions = [tokenSwap()];
@@ -186,6 +230,7 @@ it.skipIf(process.env.RUN_POLICY_TESTS !== "1")(
       maxRetries: 0,
     });
     p.transactions.push(tokenSwap());
+    p.transactions.push(aeroSwap(), aeroSwap(true));
     const policy = await client.policies().create({
       name: "Payment rule validation",
       version: "1.0",

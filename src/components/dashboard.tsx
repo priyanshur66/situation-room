@@ -918,6 +918,24 @@ function WalletDashboard({
                             </div>
                           )}
                           <div>
+                            <span>Exchange</span>
+                            <span>{quote.venue ?? "Uniswap V3"}</span>
+                          </div>
+                          {quote.venueComparison &&
+                            quote.venueComparison.length > 1 && (
+                              <div>
+                                <span>Compared after gas</span>
+                                <span>
+                                  {quote.venueComparison
+                                    .map(
+                                      (q) =>
+                                        `${q.venue}: ${money(Number(q.output) - q.gasUsd)}`,
+                                    )
+                                    .join(" · ")}
+                                </span>
+                              </div>
+                            )}
+                          <div>
                             <span>Price impact</span>
                             <span>{quote.priceImpactPct.toFixed(2)}%</span>
                           </div>
@@ -1196,8 +1214,8 @@ function WalletDashboard({
               </dd>
               <dt>Execution</dt>
               <dd>
-                Best output among supported Uniswap V3 routes successfully
-                quoted, including verified token exits through WETH. Not a
+                Compares supported Uniswap V3 and Aerodrome classic exits after
+                estimated gas, including verified routes through WETH. Not a
                 whole-market best-price guarantee. Slippage capped at 0.5%;
                 explicit wallet approval required.
               </dd>

@@ -8,6 +8,7 @@ import {
 import { contracts, routerAbi } from "./chain";
 import type { PaymentTransaction } from "./policy";
 import { parseAmount, type Quote } from "./model";
+import { aerodrome, validateAerodromeExit } from "./aerodrome-contracts";
 
 export function verifyExitReceipt(wallet: string, quote: Quote, logs: Log[]) {
   const swap = quote.transactions.at(-1);
@@ -29,38 +30,43 @@ export function verifyLiquidationReceipt(
   tx: PaymentTransaction,
   logs: Log[],
 ) {
-  if (
-    tx.kind !== "swap" ||
-    tx.to.toLowerCase() !== contracts.router.toLowerCase()
-  )
+  if (tx.kind !== "swap")
     throw new Error("Unsupported liquidation transaction.");
-  let decoded = decodeFunctionData({ abi: routerAbi, data: tx.data as Hex });
-  if (decoded.functionName === "multicall") {
-    const calls = decoded.args[1];
+  let minimum: bigint;
+  if (tx.to.toLowerCase() === aerodrome.router.toLowerCase()) {
+    minimum = validateAerodromeExit(tx.data as Hex, tx.value, wallet).minimum;
+  } else {
+    if (tx.to.toLowerCase() !== contracts.router.toLowerCase())
+      throw new Error("Unsupported liquidation transaction.");
+    let decoded = decodeFunctionData({ abi: routerAbi, data: tx.data as Hex });
+    if (decoded.functionName === "multicall") {
+      const calls = decoded.args[1];
+      if (
+        calls.length < 1 ||
+        calls.length > 2 ||
+        (calls.length === 2 &&
+          decodeFunctionData({ abi: routerAbi, data: calls[1] })
+            .functionName !== "refundETH")
+      )
+        throw new Error("Unexpected liquidation calls.");
+      decoded = decodeFunctionData({ abi: routerAbi, data: calls[0] });
+    }
     if (
-      calls.length < 1 ||
-      calls.length > 2 ||
-      (calls.length === 2 &&
-        decodeFunctionData({ abi: routerAbi, data: calls[1] }).functionName !==
-          "refundETH")
+      decoded.functionName !== "exactInput" &&
+      decoded.functionName !== "exactInputSingle"
     )
-      throw new Error("Unexpected liquidation calls.");
-    decoded = decodeFunctionData({ abi: routerAbi, data: calls[0] });
+      throw new Error("Unsupported liquidation call.");
+    const params = decoded.args[0];
+    const output =
+      "tokenOut" in params ? params.tokenOut : `0x${params.path.slice(-40)}`;
+    if (
+      params.recipient.toLowerCase() !== wallet.toLowerCase() ||
+      output.toLowerCase() !== contracts.usdc.toLowerCase() ||
+      params.amountOutMinimum <= 0n
+    )
+      throw new Error("Liquidation must deliver protected USDC to the wallet.");
+    minimum = params.amountOutMinimum;
   }
-  if (
-    decoded.functionName !== "exactInput" &&
-    decoded.functionName !== "exactInputSingle"
-  )
-    throw new Error("Unsupported liquidation call.");
-  const params = decoded.args[0];
-  const output =
-    "tokenOut" in params ? params.tokenOut : `0x${params.path.slice(-40)}`;
-  if (
-    params.recipient.toLowerCase() !== wallet.toLowerCase() ||
-    output.toLowerCase() !== contracts.usdc.toLowerCase() ||
-    params.amountOutMinimum <= 0n
-  )
-    throw new Error("Liquidation must deliver protected USDC to the wallet.");
   const transfers = parseEventLogs({
     abi: erc20Abi,
     eventName: "Transfer",
@@ -79,7 +85,7 @@ export function verifyLiquidationReceipt(
         : 0n),
     0n,
   );
-  if (net < params.amountOutMinimum)
+  if (net < minimum)
     throw new Error(
       "Liquidation receipt does not prove the approved minimum USDC output.",
     );

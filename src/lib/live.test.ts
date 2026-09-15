@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { getEvidence } from "./graph";
 import { quoteExit, planFunding, rpc } from "./chain";
 import type { Snapshot } from "./model";
+import { quoteAerodromeExit } from "./aerodrome";
 
 it.skipIf(process.env.RUN_LIVE_TESTS !== "1")(
   "quotes and simulates a Base ETH exit with synthetic balance, without signing or broadcasting",
@@ -21,6 +22,11 @@ it.skipIf(process.env.RUN_LIVE_TESTS !== "1")(
           ...args,
           stateOverride: [{ address: wallet, balance: 1000000000000000000n }],
         }),
+      estimateGas: (args: Parameters<typeof live.estimateGas>[0]) =>
+        live.estimateGas({
+          ...args,
+          stateOverride: [{ address: wallet, balance: 1000000000000000000n }],
+        }),
     } as ReturnType<typeof rpc>;
     const snapshot: Snapshot = {
       ...evidence,
@@ -35,6 +41,12 @@ it.skipIf(process.env.RUN_LIVE_TESTS !== "1")(
     expect(Number(quote.amountOut)).toBeGreaterThan(0);
     expect(quote.transactions).toHaveLength(1);
     expect(quote.alternatives.length).toBeGreaterThan(1);
+    const aerodrome = await quoteAerodromeExit(
+      wallet, "ETH", "0.0001", snapshot, client,
+    );
+    expect(aerodrome.venue).toBe("Aerodrome");
+    expect(Number(aerodrome.minimumOut)).toBeGreaterThan(0);
+    expect(aerodrome.transactions).toHaveLength(1);
     const funding = await planFunding(snapshot, "0.10", client);
     expect(funding.quote?.asset).toBe("ETH");
     expect(Number(funding.quote?.minimumOut)).toBeGreaterThanOrEqual(

@@ -31,6 +31,12 @@ export type Snapshot = {
 };
 export type Quote<A extends ExecutionAsset = ExecutionAsset> = {
   source: "live";
+  venue?: "Uniswap V3" | "Aerodrome";
+  venueComparison?: {
+    venue: "Uniswap V3" | "Aerodrome";
+    output: string;
+    gasUsd: number;
+  }[];
   asset: A;
   amountIn: string;
   amountOut: string;

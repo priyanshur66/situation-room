@@ -11,6 +11,7 @@ import { contracts, routerAbi } from "./chain";
 import { tokenContract } from "./execution-assets";
 import { verifyLiquidationReceipt } from "./payment-receipt";
 import type { PaymentTransaction } from "./policy";
+import { aerodrome, aerodromeAbi } from "./aerodrome-contracts";
 
 const wallet = "0x0000000000000000000000000000000000000001";
 const pool = "0x0000000000000000000000000000000000000002";
@@ -61,6 +62,39 @@ function transaction(wrapped = false): PaymentTransaction {
   };
 }
 describe("payment liquidation receipt validation", () => {
+  it("checks canonical net USDC receipts for Aerodrome exits", () => {
+    const tx: PaymentTransaction = {
+      ...transaction(),
+      to: aerodrome.router,
+      value: "1000",
+      data: encodeFunctionData({
+        abi: aerodromeAbi,
+        functionName: "swapExactETHForTokens",
+        args: [
+          5000000n,
+          [
+            {
+              from: contracts.weth,
+              to: contracts.usdc,
+              stable: false,
+              factory: aerodrome.factory,
+            },
+          ],
+          wallet,
+          1900000000n,
+        ],
+      }),
+    };
+    expect(verifyLiquidationReceipt(wallet, tx, [transfer(5000000n)])).toBe(
+      5000000n,
+    );
+    expect(() =>
+      verifyLiquidationReceipt(wallet, tx, [transfer(4999999n)]),
+    ).toThrow("minimum USDC");
+    expect(() =>
+      verifyLiquidationReceipt(pool, tx, [transfer(5000000n)]),
+    ).toThrow("Unsupported");
+  });
   it.each([false, true])(
     "checks minimum output for delegated/wrapped swap (%s)",
     (wrapped) => {

@@ -11,6 +11,11 @@ type AbiSchema = Extract<
 import { contracts, routerAbi } from "./chain";
 import type { PaymentPreview } from "./policy";
 import { trackedTokens } from "./portfolio";
+import {
+  aerodrome,
+  aerodromeAbi,
+  validateAerodromeExit,
+} from "./aerodrome-contracts";
 
 // Compile only reviewed, narrowly scoped calls. Unknown selectors fail closed.
 export function paymentRules(plan: PaymentPreview): Rule[] {
@@ -72,11 +77,33 @@ export function paymentRules(plan: PaymentPreview): Rule[] {
       });
       if (
         decoded.functionName !== "approve" ||
-        decoded.args[0].toLowerCase() !== contracts.router.toLowerCase()
+        ![contracts.router, aerodrome.router].some(
+          (router) => decoded.args[0].toLowerCase() === router.toLowerCase(),
+        )
       )
         throw new Error("Unsupported approval.");
       equal(erc20Abi, "approve.spender", decoded.args[0]);
       equal(erc20Abi, "approve.amount", decoded.args[1]);
+    } else if (
+      tx.kind === "swap" &&
+      tx.to.toLowerCase() === aerodrome.router.toLowerCase()
+    ) {
+      const swap = validateAerodromeExit(tx.data as Hex, tx.value);
+      const name = swap.native
+        ? "swapExactETHForTokens"
+        : "swapExactTokensForTokens";
+      // Exact original calldata binds every route element, including array length.
+      // Scalar ABI conditions also constrain recipient, minimum, deadline and input.
+      conditions.push({
+        field_source: "action_request_body",
+        field: "params.transaction.data",
+        operator: "eq",
+        value: tx.data,
+      });
+      equal(aerodromeAbi, `${name}.to`, swap.recipient);
+      equal(aerodromeAbi, `${name}.amountOutMin`, swap.minimum);
+      equal(aerodromeAbi, `${name}.deadline`, swap.deadline);
+      if (!swap.native) equal(aerodromeAbi, `${name}.amountIn`, swap.amountIn);
     } else if (
       tx.kind === "swap" &&
       tx.to.toLowerCase() === contracts.router.toLowerCase()

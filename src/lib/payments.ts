@@ -9,7 +9,8 @@ import {
   type Hex,
 } from "viem";
 import { contracts, readHoldings, rpc, routerAbi } from "./chain";
-import { quoteAssetExit } from "./token-exit";
+import { quoteBestExit } from "./exit-router";
+import { aerodrome, validateAerodromeExit } from "./aerodrome-contracts";
 import {
   executionAssets,
   executionHolding,
@@ -37,6 +38,7 @@ export async function previewPayment(
     recipient.toLowerCase() === snapshot.wallet.toLowerCase() ||
     [
       ...Object.values(contracts),
+      ...Object.values(aerodrome),
       ...executionAssets.flatMap((a) => tokenContract(a) ?? []),
     ].some((a) => a.toLowerCase() === recipient.toLowerCase())
   )
@@ -155,7 +157,7 @@ export async function previewPayment(
       native,
       reserve,
       (asset, input) =>
-        quoteAssetExit(snapshot.wallet, asset, input, snapshot, client, 300000),
+        quoteBestExit(snapshot.wallet, asset, input, snapshot, client, 300000),
     );
   } catch (error) {
     throw new Error(
@@ -177,7 +179,7 @@ export async function previewPayment(
       symbol: q.asset,
       amount: q.amountIn,
       minimumUsdc: q.minimumOut,
-      venue: "Uniswap V3",
+      venue: q.venue ?? "Uniswap V3",
     });
     result.expiresAt = Math.min(result.expiresAt, q.expiresAt);
   }
@@ -204,6 +206,10 @@ export async function previewPayment(
   if (delegated)
     for (const tx of result.transactions) {
       if (tx.kind !== "swap") continue;
+      if (tx.to.toLowerCase() === aerodrome.router.toLowerCase()) {
+        validateAerodromeExit(tx.data as Hex, tx.value, snapshot.wallet);
+        continue;
+      }
       const call = decodeFunctionData({ abi: routerAbi, data: tx.data as Hex });
       if (call.functionName !== "multicall" || !call.args[1].length)
         throw new Error("Unsupported swap wrapper.");
